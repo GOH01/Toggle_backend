@@ -9,7 +9,6 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
-import java.time.LocalDateTime;
 
 @Entity
 @Table(
@@ -18,7 +17,7 @@ import java.time.LocalDateTime;
         @UniqueConstraint(name = "uk_favorites_user_store", columnNames = {"user_id", "store_id"})
     }
 )
-public class Favorite {
+public class Favorite extends BaseTimeEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -32,15 +31,12 @@ public class Favorite {
     @JoinColumn(name = "store_id", nullable = false)
     private Store store;
 
-    private LocalDateTime createdAt;
-
     protected Favorite() {
     }
 
     public Favorite(User user, Store store) {
         this.user = user;
         this.store = store;
-        this.createdAt = LocalDateTime.now();
     }
 
     public Long getId() {
@@ -53,9 +49,5 @@ public class Favorite {
 
     public Store getStore() {
         return store;
-    }
-
-    public LocalDateTime getCreatedAt() {
-        return createdAt;
     }
 }

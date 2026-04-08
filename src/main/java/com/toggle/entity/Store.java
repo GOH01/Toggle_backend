@@ -22,7 +22,7 @@ import java.time.LocalDateTime;
         @UniqueConstraint(name = "uk_stores_external_source_place", columnNames = {"external_source", "external_place_id"})
     }
 )
-public class Store {
+public class Store extends BaseTimeEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -54,6 +54,9 @@ public class Store {
     @Column(nullable = false)
     private String address;
 
+    @Column(nullable = false)
+    private String addressNormalized;
+
     @Column(nullable = false, precision = 10, scale = 7)
     private BigDecimal latitude;
 
@@ -64,14 +67,17 @@ public class Store {
     @Column(nullable = false)
     private BusinessStatus businessStatus;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private BusinessStatus liveBusinessStatus;
+
+    private LocalDateTime liveStatusUpdatedAt;
+
+    @Enumerated(EnumType.STRING)
+    private LiveStatusSource liveStatusSource;
+
     @Column(nullable = false)
     private boolean isVerified;
-
-    @Column(nullable = false)
-    private LocalDateTime createdAt;
-
-    @Column(nullable = false)
-    private LocalDateTime updatedAt;
 
     protected Store() {
     }
@@ -82,6 +88,7 @@ public class Store {
         String name,
         String phone,
         String address,
+        String addressNormalized,
         BigDecimal latitude,
         BigDecimal longitude
     ) {
@@ -90,12 +97,13 @@ public class Store {
         this.name = name;
         this.phone = phone;
         this.address = address;
+        this.addressNormalized = addressNormalized;
         this.latitude = latitude;
         this.longitude = longitude;
         this.businessStatus = BusinessStatus.CLOSED;
+        this.liveBusinessStatus = BusinessStatus.CLOSED;
+        this.liveStatusSource = LiveStatusSource.SYSTEM;
         this.isVerified = false;
-        this.createdAt = LocalDateTime.now();
-        this.updatedAt = LocalDateTime.now();
     }
 
     public Long getId() {
@@ -122,6 +130,10 @@ public class Store {
         return phone;
     }
 
+    public String getAddressNormalized() {
+        return addressNormalized;
+    }
+
     public BigDecimal getLatitude() {
         return latitude;
     }
@@ -132,5 +144,31 @@ public class Store {
 
     public BusinessStatus getBusinessStatus() {
         return businessStatus;
+    }
+
+    public BusinessStatus getLiveBusinessStatus() {
+        return liveBusinessStatus;
+    }
+
+    public void syncResolvedPlace(
+        String name,
+        String phone,
+        String address,
+        String addressNormalized,
+        BigDecimal latitude,
+        BigDecimal longitude
+    ) {
+        this.name = name;
+        this.phone = phone;
+        this.address = address;
+        this.addressNormalized = addressNormalized;
+        this.latitude = latitude;
+        this.longitude = longitude;
+    }
+
+    public void updateLiveBusinessStatus(BusinessStatus liveBusinessStatus, LiveStatusSource liveStatusSource) {
+        this.liveBusinessStatus = liveBusinessStatus;
+        this.liveStatusSource = liveStatusSource;
+        this.liveStatusUpdatedAt = LocalDateTime.now();
     }
 }

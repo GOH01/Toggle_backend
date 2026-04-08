@@ -8,7 +8,6 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -23,25 +22,17 @@ public class FavoriteController {
     }
 
     @PostMapping("/{storeId}")
-    public ApiResponse<FavoriteStoreResponse> addFavorite(
-        @RequestHeader(value = "X-User-Id", required = false) Long userId,
-        @PathVariable Long storeId
-    ) {
-        return ApiResponse.ok(favoriteService.addFavorite(userId, storeId));
+    public ApiResponse<FavoriteStoreResponse> addFavorite(@PathVariable Long storeId) {
+        return ApiResponse.ok(favoriteService.addFavorite(storeId));
     }
 
     @DeleteMapping("/{storeId}")
-    public ApiResponse<FavoriteStoreResponse> removeFavorite(
-        @RequestHeader(value = "X-User-Id", required = false) Long userId,
-        @PathVariable Long storeId
-    ) {
-        return ApiResponse.ok(favoriteService.removeFavorite(userId, storeId));
+    public ApiResponse<FavoriteStoreResponse> removeFavorite(@PathVariable Long storeId) {
+        return ApiResponse.ok(favoriteService.removeFavorite(storeId));
     }
 
     @GetMapping
-    public ApiResponse<FavoriteStoreListResponse> getFavoriteStores(
-        @RequestHeader(value = "X-User-Id", required = false) Long userId
-    ) {
-        return ApiResponse.ok(favoriteService.getFavoriteStores(userId));
+    public ApiResponse<FavoriteStoreListResponse> getFavoriteStores() {
+        return ApiResponse.ok(favoriteService.getFavoriteStores());
     }
 }

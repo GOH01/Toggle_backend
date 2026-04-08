@@ -1,4 +1,8 @@
 spring:
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 10MB
   datasource:
     url: jdbc:h2:mem:toggle;MODE=MySQL;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
     username: sa
@@ -11,3 +15,13 @@ spring:
   sql:
     init:
       mode: never
+
+jwt:
+  issuer: toggle-test
+  secret: test-secret-key-for-jwt-signing-1234567890
+  access-token-expiration-seconds: 3600
+  refresh-token-expiration-seconds: 1209600
+
+app:
+  owner-documents:
+    upload-dir: ${java.io.tmpdir}/toggle-owner-documents-test

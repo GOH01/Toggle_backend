@@ -9,6 +9,7 @@ import com.toggle.entity.User;
 import com.toggle.global.exception.ApiException;
 import com.toggle.repository.FavoriteRepository;
 import java.util.List;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,23 +32,27 @@ public class FavoriteService {
     }
 
     @Transactional
-    public FavoriteStoreResponse addFavorite(Long userId, Long storeId) {
-        User user = authService.getAuthenticatedUser(userId);
+    public FavoriteStoreResponse addFavorite(Long storeId) {
+        User user = authService.getAuthenticatedUser();
         Store store = storeService.getStore(storeId);
 
         if (favoriteRepository.existsByUserIdAndStoreId(user.getId(), store.getId())) {
             throw new ApiException(HttpStatus.CONFLICT, "FAVORITE_ALREADY_EXISTS", "이미 즐겨찾기한 매장입니다.");
         }
 
-        Favorite favorite = favoriteRepository.save(new Favorite(user, store));
-        return new FavoriteStoreResponse(favorite.getId(), store.getId(), true, favorite.getCreatedAt());
+        try {
+            Favorite favorite = favoriteRepository.save(new Favorite(user, store));
+            return new FavoriteStoreResponse(favorite.getId(), store.getId(), true, favorite.getCreatedAt());
+        } catch (DataIntegrityViolationException ex) {
+            throw new ApiException(HttpStatus.CONFLICT, "FAVORITE_ALREADY_EXISTS", "이미 즐겨찾기한 매장입니다.");
+        }
     }
 
     @Transactional
-    public FavoriteStoreResponse removeFavorite(Long userId, Long storeId) {
-        authService.getAuthenticatedUser(userId);
+    public FavoriteStoreResponse removeFavorite(Long storeId) {
+        User user = authService.getAuthenticatedUser();
 
-        Favorite favorite = favoriteRepository.findByUserIdAndStoreId(userId, storeId)
+        Favorite favorite = favoriteRepository.findByUserIdAndStoreId(user.getId(), storeId)
             .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "FAVORITE_NOT_FOUND", "즐겨찾기 정보를 찾을 수 없습니다."));
 
         favoriteRepository.delete(favorite);
@@ -55,10 +60,10 @@ public class FavoriteService {
     }
 
     @Transactional(readOnly = true)
-    public FavoriteStoreListResponse getFavoriteStores(Long userId) {
-        authService.getAuthenticatedUser(userId);
+    public FavoriteStoreListResponse getFavoriteStores() {
+        User user = authService.getAuthenticatedUser();
 
-        List<FavoriteStoreListItemResponse> items = favoriteRepository.findAllByUserIdOrderByCreatedAtDesc(userId)
+        List<FavoriteStoreListItemResponse> items = favoriteRepository.findAllByUserIdOrderByCreatedAtDesc(user.getId())
             .stream()
             .map(favorite -> new FavoriteStoreListItemResponse(
                 favorite.getStore().getId(),
