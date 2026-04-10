@@ -61,6 +61,10 @@ import org.springframework.web.multipart.MultipartFile;
 public class OwnerApplicationService {
 
     private static final DateTimeFormatter NTS_DATE_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd");
+    private static final List<OwnerApplicationReviewStatus> ACTIVE_REQUEST_STATUSES = List.of(
+        OwnerApplicationReviewStatus.PENDING,
+        OwnerApplicationReviewStatus.UNDER_REVIEW
+    );
 
     private final OwnerApplicationRepository ownerApplicationRepository;
     private final OwnerStoreLinkRepository ownerStoreLinkRepository;
@@ -105,6 +109,7 @@ public class OwnerApplicationService {
         assertOwner(ownerUser);
 
         OwnerDocumentStorageService.StoredOwnerDocument storedDocument = ownerDocumentStorageService.store(businessLicenseFile);
+        ensureNoActiveDuplicateApplication(ownerUser.getId(), request.businessNumber(), request.businessAddress(), null);
         OwnerApplication application = buildApplication(ownerUser, request, storedDocument);
         ownerApplicationRepository.save(application);
         runInitialVerifications(application);
@@ -136,6 +141,7 @@ public class OwnerApplicationService {
             )
             : ownerDocumentStorageService.store(businessLicenseFile);
 
+        ensureNoActiveDuplicateApplication(ownerUser.getId(), request.businessNumber(), request.businessAddress(), applicationId);
         String normalizedAddress = request.businessAddress().trim();
         application.updateOwnerDraft(
             request.storeName().trim(),
@@ -185,9 +191,12 @@ public class OwnerApplicationService {
                 .map(history -> new MapVerificationHistoryResponse(
                     history.getQueryText(),
                     history.getStatus().name(),
+                    history.getCandidateCount(),
                     history.getSelectedPlaceName(),
                     history.getSelectedRoadAddress(),
+                    history.getSelectedJibunAddress(),
                     history.getSelectedExternalPlaceId(),
+                    history.getFailureCode(),
                     history.getFailureMessage(),
                     history.getVerifiedAt()
                 ))
@@ -433,8 +442,7 @@ public class OwnerApplicationService {
             result = nationalTaxServiceClient.verifyBusiness(
                 application.getBusinessNumber(),
                 application.getRepresentativeName(),
-                application.getBusinessOpenDate().format(NTS_DATE_FORMAT),
-                application.getBusinessAddressRaw()
+                application.getBusinessOpenDate().format(NTS_DATE_FORMAT)
             );
         } catch (ApiException ex) {
             if (HttpStatus.SERVICE_UNAVAILABLE.equals(ex.getStatus())) {
@@ -552,15 +560,16 @@ public class OwnerApplicationService {
             return;
         }
 
-        if (candidates.size() > 1) {
-            Candidate ambiguousCandidate = candidates.get(0);
+        List<Candidate> narrowedCandidates = narrowCandidatesByStoreName(application.getStoreName(), candidates);
+        if (narrowedCandidates.size() > 1) {
+            Candidate ambiguousCandidate = narrowedCandidates.get(0);
             application.markMapVerificationFailed();
             mapVerificationHistoryRepository.save(new MapVerificationHistory(
                 application,
                 ambiguousCandidate.queryText(),
                 ambiguousCandidate.queryType(),
                 VerificationRecordStatus.FAILED,
-                candidates.size(),
+                narrowedCandidates.size(),
                 ambiguousCandidate.externalPlaceId(),
                 ambiguousCandidate.storeName(),
                 ambiguousCandidate.roadAddress(),
@@ -569,16 +578,16 @@ public class OwnerApplicationService {
                 ambiguousCandidate.categoryName(),
                 ambiguousCandidate.latitude() == null ? null : ambiguousCandidate.latitude().toPlainString(),
                 ambiguousCandidate.longitude() == null ? null : ambiguousCandidate.longitude().toPlainString(),
-                safeJson(candidates),
+                safeJson(narrowedCandidates),
                 null,
                 "KAKAO_EXACT_ADDRESS_AMBIGUOUS",
-                "실영업주소가 정확히 일치하는 카카오 매장이 여러 개라 자동 확정할 수 없습니다.",
+                "실영업주소가 정확히 일치하는 카카오 매장이 여러 개입니다. 상호명까지 확인해도 자동 확정할 수 없습니다.",
                 LocalDateTime.now()
             ));
             return;
         }
 
-        Candidate bestCandidate = candidates.get(0);
+        Candidate bestCandidate = narrowedCandidates.get(0);
 
         ResolveStoreResponse resolvedStore = storeService.resolveStore(new ResolveStoreRequest(
             ExternalSource.KAKAO.name(),
@@ -602,9 +611,9 @@ public class OwnerApplicationService {
             application,
             bestCandidate.queryText(),
             bestCandidate.queryType(),
-            VerificationRecordStatus.SUCCESS,
-            candidates.size(),
-            bestCandidate.externalPlaceId(),
+                VerificationRecordStatus.SUCCESS,
+                narrowedCandidates.size(),
+                bestCandidate.externalPlaceId(),
             bestCandidate.storeName(),
             bestCandidate.roadAddress(),
             bestCandidate.jibunAddress(),
@@ -612,12 +621,12 @@ public class OwnerApplicationService {
             bestCandidate.categoryName(),
             bestCandidate.latitude() == null ? null : bestCandidate.latitude().toPlainString(),
             bestCandidate.longitude() == null ? null : bestCandidate.longitude().toPlainString(),
-            safeJson(candidates),
-            verifiedStore,
-            null,
-            null,
-            LocalDateTime.now()
-        ));
+                safeJson(narrowedCandidates),
+                verifiedStore,
+                null,
+                null,
+                LocalDateTime.now()
+            ));
     }
 
     private List<Candidate> searchCandidates(OwnerApplication application) {
@@ -655,6 +664,40 @@ public class OwnerApplicationService {
             .filter(Candidate::addressExact)
             .sorted(Comparator.comparing(Candidate::phoneExact).reversed())
             .toList();
+    }
+
+    private List<Candidate> narrowCandidatesByStoreName(String requestedStoreName, List<Candidate> candidates) {
+        if (candidates.size() <= 1) {
+            return candidates;
+        }
+
+        String normalizedRequestedStoreName = normalizeStoreName(requestedStoreName);
+        if (normalizedRequestedStoreName.isBlank()) {
+            return candidates;
+        }
+
+        List<Candidate> exactNameCandidates = candidates.stream()
+            .filter(candidate -> normalizeStoreName(candidate.storeName()).equals(normalizedRequestedStoreName))
+            .toList();
+        if (exactNameCandidates.size() == 1) {
+            return exactNameCandidates;
+        }
+        if (!exactNameCandidates.isEmpty()) {
+            return exactNameCandidates;
+        }
+
+        List<Candidate> partialNameCandidates = candidates.stream()
+            .filter(candidate -> {
+                String normalizedCandidateStoreName = normalizeStoreName(candidate.storeName());
+                return normalizedCandidateStoreName.contains(normalizedRequestedStoreName)
+                    || normalizedRequestedStoreName.contains(normalizedCandidateStoreName);
+            })
+            .toList();
+        if (!partialNameCandidates.isEmpty()) {
+            return partialNameCandidates;
+        }
+
+        return candidates;
     }
 
     private Candidate toExactMatchCandidate(
@@ -720,6 +763,40 @@ public class OwnerApplicationService {
             return "";
         }
         return rawPhone.replaceAll("[^0-9]", "");
+    }
+
+    private String normalizeStoreName(String rawStoreName) {
+        if (rawStoreName == null) {
+            return "";
+        }
+        return rawStoreName
+            .trim()
+            .toLowerCase(Locale.ROOT)
+            .replaceAll("[^0-9a-z가-힣]", "");
+    }
+
+    private void ensureNoActiveDuplicateApplication(Long ownerUserId, String businessNumber, String businessAddress, Long currentApplicationId) {
+        String normalizedBusinessNumber = normalizeBusinessNumber(businessNumber);
+        String normalizedAddress = addressNormalizer.normalize(businessAddress);
+
+        boolean exists = currentApplicationId == null
+            ? ownerApplicationRepository.existsByUserIdAndBusinessNumberAndBusinessAddressNormalizedAndReviewStatusIn(
+                ownerUserId,
+                normalizedBusinessNumber,
+                normalizedAddress,
+                ACTIVE_REQUEST_STATUSES
+            )
+            : ownerApplicationRepository.existsByUserIdAndBusinessNumberAndBusinessAddressNormalizedAndReviewStatusInAndIdNot(
+                ownerUserId,
+                normalizedBusinessNumber,
+                normalizedAddress,
+                ACTIVE_REQUEST_STATUSES,
+                currentApplicationId
+            );
+
+        if (exists) {
+            throw new ApiException(HttpStatus.CONFLICT, "OWNER_APPLICATION_DUPLICATED", "같은 사업자번호와 실영업주소로 진행 중인 신청이 이미 있습니다.");
+        }
     }
 
     private List<Candidate> deduplicateCandidates(List<Candidate> candidates) {

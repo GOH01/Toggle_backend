@@ -111,7 +111,7 @@ class ToggleBackendApplicationTests {
         storeRepository.deleteAll();
         userRepository.deleteAll();
         given(kakaoPlaceClient.searchByKeyword(anyString())).willReturn(java.util.List.of());
-        given(nationalTaxServiceClient.verifyBusiness(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString()))
+        given(nationalTaxServiceClient.verifyBusiness(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString()))
             .willReturn(new NationalTaxVerificationResult(false, "{}", "{}", null, null, null, null, "NTS_VERIFICATION_FAILED", "국세청 진위확인 결과가 일치하지 않습니다."));
     }
 
@@ -213,7 +213,7 @@ class ToggleBackendApplicationTests {
     @Test
     void adminShouldManuallyVerifyNonSeoulApplicationAndApprove() throws Exception {
         String ownerToken = signupAndLoginOwner("owner@toggle.com");
-        given(nationalTaxServiceClient.verifyBusiness(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString()))
+        given(nationalTaxServiceClient.verifyBusiness(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString()))
             .willThrow(new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "NATIONAL_TAX_API_ERROR", "국세청 API 호출에 실패했습니다."));
         mockMatchingPlace("5555555555", "부산광역시 해운대구 우동 123");
         Long applicationId = createOwnerApplication(ownerToken, "부산광역시 해운대구 우동 123");
@@ -368,7 +368,62 @@ class ToggleBackendApplicationTests {
         mockMvc.perform(get("/api/v1/admin/store-registration-requests/{applicationId}", applicationId)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.mapVerificationHistories[0].failureMessage").value("실영업주소가 정확히 일치하는 카카오 매장이 여러 개라 자동 확정할 수 없습니다."));
+            .andExpect(jsonPath("$.data.mapVerificationHistories[0].failureMessage").value("실영업주소가 정확히 일치하는 카카오 매장이 여러 개입니다. 상호명까지 확인해도 자동 확정할 수 없습니다."));
+    }
+
+    @Test
+    void mapVerificationShouldResolveUniqueNameMatchAmongExactAddressResults() throws Exception {
+        String ownerToken = signupAndLoginOwner("owner@toggle.com");
+        mockAutomaticBusinessVerificationSuccess();
+        KakaoKeywordSearchResponse.KakaoPlaceDocument other = new KakaoKeywordSearchResponse.KakaoPlaceDocument(
+            "place-1",
+            "골프존파크 안양명학역점",
+            "경기 안양시 만안구 만안로 35",
+            "경기 안양시 만안구 만안로 35",
+            "031-111-1111",
+            "스포츠,오락",
+            new BigDecimal("126.9281000"),
+            new BigDecimal("37.3833000")
+        );
+        KakaoKeywordSearchResponse.KakaoPlaceDocument target = new KakaoKeywordSearchResponse.KakaoPlaceDocument(
+            "place-2",
+            "하삼동커피 안양명학역점",
+            "경기 안양시 만안구 만안로 35",
+            "경기 안양시 만안구 만안로 35",
+            "031-222-2222",
+            "카페",
+            new BigDecimal("126.9281000"),
+            new BigDecimal("37.3833000")
+        );
+        given(kakaoPlaceClient.searchByKeyword("하삼동 커피 경기도 안양시 만안구 만안로 35"))
+            .willReturn(java.util.List.of(other, target));
+
+        mockMvc.perform(multipart("/api/v1/owner/store-registration-requests")
+                .file(ownerApplicationRequestPart("경기도 안양시 만안구 만안로 35", "하삼동 커피"))
+                .file(ownerLicenseFile())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + ownerToken))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.mapVerificationStatus").value("VERIFIED"));
+    }
+
+    @Test
+    void duplicateActiveApplicationShouldBeRejected() throws Exception {
+        String ownerToken = signupAndLoginOwner("owner@toggle.com");
+        mockAutomaticBusinessVerificationSuccess();
+        mockMatchingPlace("1234567890", "경기도 안양시 만안구 만안로 35");
+
+        mockMvc.perform(multipart("/api/v1/owner/store-registration-requests")
+                .file(ownerApplicationRequestPart("경기도 안양시 만안구 만안로 35", "하삼동 커피"))
+                .file(ownerLicenseFile())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + ownerToken))
+            .andExpect(status().isOk());
+
+        mockMvc.perform(multipart("/api/v1/owner/store-registration-requests")
+                .file(ownerApplicationRequestPart("경기도 안양시 만안구 만안로 35", "하삼동 커피"))
+                .file(ownerLicenseFile())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + ownerToken))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.error.code").value("OWNER_APPLICATION_DUPLICATED"));
     }
 
     @Test
@@ -448,7 +503,7 @@ class ToggleBackendApplicationTests {
     void nationalTaxConfigurationErrorShouldBeRetryableNotBusinessMismatch() throws Exception {
         String ownerToken = signupAndLoginOwner("owner@toggle.com");
         reset(nationalTaxServiceClient);
-        given(nationalTaxServiceClient.verifyBusiness(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString()))
+        given(nationalTaxServiceClient.verifyBusiness(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString()))
             .willThrow(new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "NATIONAL_TAX_NOT_CONFIGURED", "국세청 API 설정이 필요합니다."));
         mockMatchingPlace("1234567890", "서울 강남구 테헤란로 123");
 
@@ -745,12 +800,16 @@ class ToggleBackendApplicationTests {
     }
 
     private MockMultipartFile ownerApplicationRequestPart(String address) throws Exception {
+        return ownerApplicationRequestPart(address, "owner-shop");
+    }
+
+    private MockMultipartFile ownerApplicationRequestPart(String address, String storeName) throws Exception {
         return new MockMultipartFile(
             "request",
             "",
             MediaType.APPLICATION_JSON_VALUE,
             objectMapper.writeValueAsBytes(new OwnerApplicationRequest(
-                "owner-shop",
+                storeName,
                 "123-45-67890",
                 "홍길동",
                 LocalDate.of(2021, 3, 15),
@@ -817,7 +876,7 @@ class ToggleBackendApplicationTests {
         String openDate,
         String address
     ) {
-        given(nationalTaxServiceClient.verifyBusiness(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString()))
+        given(nationalTaxServiceClient.verifyBusiness(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString()))
             .willReturn(new NationalTaxVerificationResult(
                 true,
                 "{\"businesses\":[]}",

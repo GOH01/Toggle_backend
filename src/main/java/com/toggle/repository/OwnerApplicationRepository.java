@@ -1,6 +1,7 @@
 package com.toggle.repository;
 
 import com.toggle.entity.OwnerApplication;
+import com.toggle.entity.OwnerApplicationReviewStatus;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.EntityGraph;
@@ -16,4 +17,19 @@ public interface OwnerApplicationRepository extends JpaRepository<OwnerApplicati
 
     @EntityGraph(attributePaths = "user")
     Optional<OwnerApplication> findById(Long id);
+
+    boolean existsByUserIdAndBusinessNumberAndBusinessAddressNormalizedAndReviewStatusIn(
+        Long userId,
+        String businessNumber,
+        String businessAddressNormalized,
+        List<OwnerApplicationReviewStatus> reviewStatuses
+    );
+
+    boolean existsByUserIdAndBusinessNumberAndBusinessAddressNormalizedAndReviewStatusInAndIdNot(
+        Long userId,
+        String businessNumber,
+        String businessAddressNormalized,
+        List<OwnerApplicationReviewStatus> reviewStatuses,
+        Long id
+    );
 }

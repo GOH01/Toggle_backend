@@ -133,8 +133,20 @@ public class MapVerificationHistory extends BaseTimeEntity {
         return selectedRoadAddress;
     }
 
+    public String getSelectedJibunAddress() {
+        return selectedJibunAddress;
+    }
+
     public String getSelectedExternalPlaceId() {
         return selectedExternalPlaceId;
+    }
+
+    public String getFailureCode() {
+        return failureCode;
+    }
+
+    public int getCandidateCount() {
+        return candidateCount;
     }
 
     public String getFailureMessage() {
