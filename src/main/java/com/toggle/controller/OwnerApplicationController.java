@@ -3,6 +3,7 @@ package com.toggle.controller;
 import com.toggle.dto.owner.OwnerApplicationRequest;
 import com.toggle.dto.owner.OwnerApplicationResponse;
 import com.toggle.dto.owner.OwnerApplicationSummaryResponse;
+import com.toggle.dto.owner.OwnerApplicationUpdateRequest;
 import com.toggle.dto.owner.OwnerLinkedStoreResponse;
 import com.toggle.dto.owner.OwnerStoreStatusResponse;
 import com.toggle.dto.owner.OwnerStoreStatusUpdateRequest;
@@ -13,6 +14,7 @@ import jakarta.validation.Valid;
 import java.util.List;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -33,7 +35,7 @@ public class OwnerApplicationController {
         this.authService = authService;
     }
 
-    @PostMapping(value = "/store-applications", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PostMapping(value = {"/store-applications", "/store-registration-requests"}, consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ApiResponse<OwnerApplicationResponse> createApplication(
         @Valid @RequestPart("request") OwnerApplicationRequest request,
         @RequestPart("businessLicenseFile") MultipartFile businessLicenseFile
@@ -41,7 +43,16 @@ public class OwnerApplicationController {
         return ApiResponse.ok(ownerApplicationService.createApplication(authService.getAuthenticatedUser(), request, businessLicenseFile));
     }
 
-    @GetMapping("/store-applications")
+    @PatchMapping(value = {"/store-applications/{applicationId}", "/store-registration-requests/{applicationId}"}, consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ApiResponse<OwnerApplicationResponse> updateApplication(
+        @PathVariable Long applicationId,
+        @Valid @RequestPart("request") OwnerApplicationUpdateRequest request,
+        @RequestPart(value = "businessLicenseFile", required = false) MultipartFile businessLicenseFile
+    ) {
+        return ApiResponse.ok(ownerApplicationService.updateApplication(authService.getAuthenticatedUser(), applicationId, request, businessLicenseFile));
+    }
+
+    @GetMapping({"/store-applications", "/store-registration-requests"})
     public ApiResponse<List<OwnerApplicationSummaryResponse>> listMyApplications() {
         return ApiResponse.ok(ownerApplicationService.listMyApplications(authService.getAuthenticatedUser().getId()));
     }

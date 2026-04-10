@@ -8,7 +8,7 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import java.time.LocalDate;
 
-public record OwnerApplicationRequest(
+public record OwnerApplicationUpdateRequest(
     @JsonDeserialize(using = TrimmedStringDeserializer.class)
     @NotBlank
     @Size(min = 2, max = 80)

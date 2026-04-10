@@ -25,3 +25,9 @@ jwt:
 app:
   owner-documents:
     upload-dir: ${java.io.tmpdir}/toggle-owner-documents-test
+  national-tax:
+    service-key: test-national-tax-service-key
+    base-url: https://api.odcloud.kr/api/nts-businessman/v1
+  kakao:
+    api-key: test-kakao-api-key
+    base-url: https://dapi.kakao.com

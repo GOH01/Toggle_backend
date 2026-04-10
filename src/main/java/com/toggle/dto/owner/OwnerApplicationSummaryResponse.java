@@ -1,5 +1,6 @@
 package com.toggle.dto.owner;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 public record OwnerApplicationSummaryResponse(
@@ -7,13 +8,20 @@ public record OwnerApplicationSummaryResponse(
     Long ownerUserId,
     String ownerEmail,
     String ownerNickname,
-    String businessName,
+    String storeName,
     String businessNumber,
+    String representativeName,
+    LocalDate businessOpenDate,
     String businessAddressRaw,
+    String businessPhone,
     String businessLicenseOriginalName,
     String businessLicenseContentType,
     String businessLicenseStoredPath,
-    String reviewStatus,
+    String requestStatus,
+    String businessVerificationStatus,
+    String mapVerificationStatus,
+    Long verifiedStoreId,
+    String verifiedStoreName,
     String rejectReason,
     LocalDateTime submittedAt,
     LocalDateTime reviewedAt

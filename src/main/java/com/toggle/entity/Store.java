@@ -51,6 +51,15 @@ public class Store extends BaseTimeEntity {
     @Column
     private String phone;
 
+    @Column
+    private String roadAddress;
+
+    @Column
+    private String jibunAddress;
+
+    @Column
+    private String categoryName;
+
     @Column(nullable = false)
     private String address;
 
@@ -75,6 +84,11 @@ public class Store extends BaseTimeEntity {
 
     @Enumerated(EnumType.STRING)
     private LiveStatusSource liveStatusSource;
+
+    private LocalDateTime verifiedAt;
+
+    @Column(columnDefinition = "TEXT")
+    private String rawSourcePayloadJson;
 
     @Column(nullable = false)
     private boolean isVerified;
@@ -130,6 +144,18 @@ public class Store extends BaseTimeEntity {
         return phone;
     }
 
+    public String getRoadAddress() {
+        return roadAddress;
+    }
+
+    public String getJibunAddress() {
+        return jibunAddress;
+    }
+
+    public String getCategoryName() {
+        return categoryName;
+    }
+
     public String getAddressNormalized() {
         return addressNormalized;
     }
@@ -150,6 +176,10 @@ public class Store extends BaseTimeEntity {
         return liveBusinessStatus;
     }
 
+    public LocalDateTime getVerifiedAt() {
+        return verifiedAt;
+    }
+
     public void syncResolvedPlace(
         String name,
         String phone,
@@ -164,6 +194,21 @@ public class Store extends BaseTimeEntity {
         this.addressNormalized = addressNormalized;
         this.latitude = latitude;
         this.longitude = longitude;
+    }
+
+    public void markVerified(
+        String roadAddress,
+        String jibunAddress,
+        String categoryName,
+        String rawSourcePayloadJson,
+        LocalDateTime verifiedAt
+    ) {
+        this.roadAddress = roadAddress;
+        this.jibunAddress = jibunAddress;
+        this.categoryName = categoryName;
+        this.rawSourcePayloadJson = rawSourcePayloadJson;
+        this.verifiedAt = verifiedAt;
+        this.isVerified = true;
     }
 
     public void updateLiveBusinessStatus(BusinessStatus liveBusinessStatus, LiveStatusSource liveStatusSource) {

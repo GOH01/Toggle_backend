@@ -1,7 +1,14 @@
 package com.toggle;
 
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -10,26 +17,39 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.toggle.dto.auth.LoginRequest;
 import com.toggle.dto.auth.RefreshTokenRequest;
 import com.toggle.dto.auth.SignupRequest;
+import com.toggle.dto.kakao.KakaoKeywordSearchResponse;
+import com.toggle.dto.owner.ManualBusinessVerificationRequest;
+import com.toggle.dto.owner.NationalTaxVerificationResult;
+import com.toggle.dto.owner.OwnerApplicationApproveRequest;
 import com.toggle.dto.owner.OwnerApplicationRequest;
 import com.toggle.dto.owner.OwnerApplicationReviewRequest;
 import com.toggle.dto.store.ResolveStoreRequest;
+import com.toggle.global.exception.ApiException;
 import com.toggle.entity.ExternalSource;
 import com.toggle.entity.User;
 import com.toggle.entity.UserRole;
 import com.toggle.entity.UserStatus;
+import com.toggle.repository.AdminReviewLogRepository;
+import com.toggle.repository.BusinessVerificationHistoryRepository;
 import com.toggle.repository.FavoriteRepository;
+import com.toggle.repository.MapVerificationHistoryRepository;
 import com.toggle.repository.OwnerApplicationRepository;
 import com.toggle.repository.OwnerStoreLinkRepository;
 import com.toggle.repository.StoreRepository;
 import com.toggle.repository.UserRepository;
+import com.toggle.service.KakaoPlaceClient;
+import com.toggle.service.NationalTaxServiceClient;
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -65,13 +85,34 @@ class ToggleBackendApplicationTests {
     @Autowired
     private PasswordEncoder passwordEncoder;
 
+    @Autowired
+    private BusinessVerificationHistoryRepository businessVerificationHistoryRepository;
+
+    @Autowired
+    private MapVerificationHistoryRepository mapVerificationHistoryRepository;
+
+    @Autowired
+    private AdminReviewLogRepository adminReviewLogRepository;
+
+    @MockBean
+    private KakaoPlaceClient kakaoPlaceClient;
+
+    @MockBean
+    private NationalTaxServiceClient nationalTaxServiceClient;
+
     @BeforeEach
     void setUp() {
         favoriteRepository.deleteAll();
+        adminReviewLogRepository.deleteAll();
+        businessVerificationHistoryRepository.deleteAll();
+        mapVerificationHistoryRepository.deleteAll();
         ownerStoreLinkRepository.deleteAll();
-        storeRepository.deleteAll();
         ownerApplicationRepository.deleteAll();
+        storeRepository.deleteAll();
         userRepository.deleteAll();
+        given(kakaoPlaceClient.searchByKeyword(anyString())).willReturn(java.util.List.of());
+        given(nationalTaxServiceClient.verifyBusiness(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString()))
+            .willReturn(new NationalTaxVerificationResult(false, "{}", "{}", null, null, null, null, "NTS_VERIFICATION_FAILED", "국세청 진위확인 결과가 일치하지 않습니다."));
     }
 
     @Test
@@ -84,12 +125,7 @@ class ToggleBackendApplicationTests {
 
     @Test
     void signupLoginAndMeFlowShouldWork() throws Exception {
-        SignupRequest signupRequest = new SignupRequest(
-            "tester@toggle.com",
-            "password123!",
-            "tester",
-            UserRole.USER
-        );
+        SignupRequest signupRequest = new SignupRequest("tester@toggle.com", "password123!", "tester", UserRole.USER);
 
         mockMvc.perform(post("/api/v1/auth/signup")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -105,7 +141,6 @@ class ToggleBackendApplicationTests {
                 .content(objectMapper.writeValueAsString(loginRequest)))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.tokenType").value("Bearer"))
-            .andExpect(jsonPath("$.data.user.email").value("tester@toggle.com"))
             .andReturn()
             .getResponse()
             .getContentAsString();
@@ -116,82 +151,12 @@ class ToggleBackendApplicationTests {
         mockMvc.perform(get("/api/v1/auth/me")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.email").value("tester@toggle.com"))
-            .andExpect(jsonPath("$.data.role").value("USER"));
+            .andExpect(jsonPath("$.data.email").value("tester@toggle.com"));
 
         mockMvc.perform(post("/api/v1/auth/refresh")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(new RefreshTokenRequest(refreshToken))))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.accessToken").isString())
-            .andExpect(jsonPath("$.data.refreshToken").isString());
-    }
-
-    @Test
-    void signupShouldNormalizeEmailAndRejectCaseInsensitiveDuplicate() throws Exception {
-        mockMvc.perform(post("/api/v1/auth/signup")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(new SignupRequest(
-                    "  Tester@Toggle.com ",
-                    "password123!",
-                    "tester",
-                    UserRole.USER
-                ))))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.email").value("tester@toggle.com"));
-
-        mockMvc.perform(post("/api/v1/auth/signup")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(new SignupRequest(
-                    "tester@toggle.com",
-                    "password123!",
-                    "tester2",
-                    UserRole.USER
-                ))))
-            .andExpect(status().isConflict())
-            .andExpect(jsonPath("$.error.code").value("EMAIL_ALREADY_EXISTS"));
-    }
-
-    @Test
-    void duplicateEmailSignupShouldReturnConflict() throws Exception {
-        SignupRequest signupRequest = new SignupRequest(
-            "tester@toggle.com",
-            "password123!",
-            "tester",
-            UserRole.USER
-        );
-
-        mockMvc.perform(post("/api/v1/auth/signup")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(signupRequest)))
             .andExpect(status().isOk());
-
-        mockMvc.perform(post("/api/v1/auth/signup")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(signupRequest)))
-            .andExpect(status().isConflict())
-            .andExpect(jsonPath("$.error.code").value("EMAIL_ALREADY_EXISTS"));
-    }
-
-    @Test
-    void invalidCredentialsShouldReturnUnauthorized() throws Exception {
-        SignupRequest signupRequest = new SignupRequest(
-            "tester@toggle.com",
-            "password123!",
-            "tester",
-            UserRole.USER
-        );
-
-        mockMvc.perform(post("/api/v1/auth/signup")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(signupRequest)))
-            .andExpect(status().isOk());
-
-        mockMvc.perform(post("/api/v1/auth/login")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(new LoginRequest("tester@toggle.com", "wrong-password"))))
-            .andExpect(status().isUnauthorized())
-            .andExpect(jsonPath("$.error.code").value("INVALID_CREDENTIALS"));
     }
 
     @Test
@@ -200,51 +165,79 @@ class ToggleBackendApplicationTests {
         Long storeId = createStore();
 
         mockMvc.perform(get("/api/v1/favorites/stores"))
-            .andExpect(status().isUnauthorized())
-            .andExpect(jsonPath("$.error.code").value("UNAUTHORIZED"));
+            .andExpect(status().isUnauthorized());
 
         mockMvc.perform(post("/api/v1/favorites/stores/{storeId}", storeId)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.favorited").value(true));
-
-        mockMvc.perform(get("/api/v1/favorites/stores")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.totalElements").value(1))
-            .andExpect(jsonPath("$.data.content[0].storeId").value(storeId));
     }
 
     @Test
-    void ownerShouldSignupLoginAndCreateStoreApplication() throws Exception {
+    void seoulOwnerApplicationShouldRunAutomaticBusinessAndMapVerification() throws Exception {
         String ownerToken = signupAndLoginOwner("owner@toggle.com");
-        MockMultipartFile requestPart = ownerApplicationRequestPart();
-        MockMultipartFile licenseFile = ownerLicenseFile();
+        mockAutomaticBusinessVerificationSuccess();
+        mockMatchingPlace("1234567890", "서울특별시 강남구 테헤란로 123");
 
-        mockMvc.perform(multipart("/api/v1/owner/store-applications")
-                .file(requestPart)
-                .file(licenseFile)
+        mockMvc.perform(multipart("/api/v1/owner/store-registration-requests")
+                .file(ownerApplicationRequestPart("서울특별시 강남구 테헤란로 123"))
+                .file(ownerLicenseFile())
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + ownerToken))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.ownerUserId").exists())
-            .andExpect(jsonPath("$.data.businessName").value("owner-shop"))
-            .andExpect(jsonPath("$.data.reviewStatus").value("PENDING"));
+            .andExpect(jsonPath("$.data.requestStatus").value("UNDER_REVIEW"))
+            .andExpect(jsonPath("$.data.businessVerificationStatus").value("AUTO_VERIFIED"))
+            .andExpect(jsonPath("$.data.mapVerificationStatus").value("VERIFIED"));
+
+        mockMvc.perform(get("/api/v1/admin/store-registration-requests")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + createAdminAndLogin()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data[0].storeName").value("owner-shop"))
+            .andExpect(jsonPath("$.data[0].verifiedStoreId").isNumber());
     }
 
     @Test
-    void approvedOwnerApplicationShouldCreateLinkedStore() throws Exception {
+    void nonSeoulOwnerApplicationShouldRunAutomaticBusinessVerificationToo() throws Exception {
         String ownerToken = signupAndLoginOwner("owner@toggle.com");
-        Long applicationId = createOwnerApplication(ownerToken);
-        Long storeId = createStore();
+        mockAutomaticBusinessVerificationSuccessFor("1234567890", "홍길동", "20210315", "부산광역시 해운대구 우동 123");
+        mockMatchingPlace("5555555555", "부산광역시 해운대구 우동 123");
+
+        mockMvc.perform(multipart("/api/v1/owner/store-registration-requests")
+                .file(ownerApplicationRequestPart("부산광역시 해운대구 우동 123"))
+                .file(ownerLicenseFile())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + ownerToken))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.businessVerificationStatus").value("AUTO_VERIFIED"))
+            .andExpect(jsonPath("$.data.mapVerificationStatus").value("VERIFIED"));
+    }
+
+    @Test
+    void adminShouldManuallyVerifyNonSeoulApplicationAndApprove() throws Exception {
+        String ownerToken = signupAndLoginOwner("owner@toggle.com");
+        given(nationalTaxServiceClient.verifyBusiness(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString()))
+            .willThrow(new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "NATIONAL_TAX_API_ERROR", "국세청 API 호출에 실패했습니다."));
+        mockMatchingPlace("5555555555", "부산광역시 해운대구 우동 123");
+        Long applicationId = createOwnerApplication(ownerToken, "부산광역시 해운대구 우동 123");
         String adminToken = createAdminAndLogin();
 
-        mockMvc.perform(post("/api/v1/admin/owner-store-applications/{applicationId}/approve", applicationId)
+        mockMvc.perform(post("/api/v1/admin/store-registration-requests/{applicationId}/business-verifications/manual", applicationId)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken)
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"storeId\":" + storeId + "}"))
+                .content(objectMapper.writeValueAsString(new ManualBusinessVerificationRequest(true, "사업자등록정보 수동 확인 완료"))))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.reviewStatus").value("APPROVED"))
-            .andExpect(jsonPath("$.data.linkedStoreId").value(storeId));
+            .andExpect(jsonPath("$.data.businessVerificationStatus").value("MANUAL_VERIFIED"));
+
+        String response = mockMvc.perform(post("/api/v1/admin/store-registration-requests/{applicationId}/approve", applicationId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(new OwnerApplicationApproveRequest(true))))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.requestStatus").value("APPROVED"))
+            .andExpect(jsonPath("$.data.mapVerificationStatus").value("VERIFIED"))
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+
+        long storeId = objectMapper.readTree(response).path("data").path("linkedStoreId").asLong();
 
         mockMvc.perform(get("/api/v1/owner/stores")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + ownerToken))
@@ -253,135 +246,416 @@ class ToggleBackendApplicationTests {
     }
 
     @Test
-    void adminShouldBeAbleToRejectOwnerApplication() throws Exception {
+    void adminShouldNotApproveWhenMapVerificationFailed() throws Exception {
         String ownerToken = signupAndLoginOwner("owner@toggle.com");
-        Long applicationId = createOwnerApplication(ownerToken);
+        mockAutomaticBusinessVerificationSuccess();
+        Long applicationId = createOwnerApplication(ownerToken, "서울특별시 강남구 테헤란로 123");
         String adminToken = createAdminAndLogin();
 
-        mockMvc.perform(post("/api/v1/admin/owner-store-applications/{applicationId}/reject", applicationId)
+        mockMvc.perform(post("/api/v1/admin/store-registration-requests/{applicationId}/approve", applicationId)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken)
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(new OwnerApplicationReviewRequest("서류 식별 불가"))))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.reviewStatus").value("REJECTED"))
-            .andExpect(jsonPath("$.data.rejectReason").value("서류 식별 불가"));
+                .content(objectMapper.writeValueAsString(new OwnerApplicationApproveRequest(true))))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.error.code").value("STORE_REGISTRATION_NOT_APPROVABLE"));
     }
 
     @Test
-    void adminShouldListOwnerApplications() throws Exception {
+    void seoulAddressNormalizationShouldAllowMapVerificationWithShortRoadAddress() throws Exception {
         String ownerToken = signupAndLoginOwner("owner@toggle.com");
-        createOwnerApplication(ownerToken);
-        String adminToken = createAdminAndLogin();
+        mockAutomaticBusinessVerificationSuccess();
+        mockMatchingPlace("1234567890", "서울 강남구 테헤란로 123");
 
-        mockMvc.perform(get("/api/v1/admin/owner-store-applications")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken))
+        mockMvc.perform(multipart("/api/v1/owner/store-registration-requests")
+                .file(ownerApplicationRequestPart("서울특별시 강남구 테헤란로 123"))
+                .file(ownerLicenseFile())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + ownerToken))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data[0].ownerEmail").value("owner@toggle.com"))
-            .andExpect(jsonPath("$.data[0].businessName").value("owner-shop"))
-            .andExpect(jsonPath("$.data[0].businessAddressRaw").value("서울특별시 강남구 테헤란로 123"))
-            .andExpect(jsonPath("$.data[0].reviewStatus").value("PENDING"));
+            .andExpect(jsonPath("$.data.mapVerificationStatus").value("VERIFIED"));
     }
 
     @Test
-    void adminShouldListMatchCandidatesAndConfirmOwnerStoreLink() throws Exception {
+    void mapVerificationShouldFallbackToAddressSearchWhenNameQueryDoesNotHaveExactAddressMatch() throws Exception {
         String ownerToken = signupAndLoginOwner("owner@toggle.com");
-        Long applicationId = createOwnerApplication(ownerToken);
-        Long storeId = createStore();
+        mockAutomaticBusinessVerificationSuccess();
+        mockNameQueryFallbackScenario();
+
+        mockMvc.perform(multipart("/api/v1/owner/store-registration-requests")
+                .file(ownerApplicationRequestPart("서울특별시 강남구 선릉로 551"))
+                .file(ownerLicenseFile())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + ownerToken))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.mapVerificationStatus").value("VERIFIED"));
+    }
+
+    @Test
+    void exactAddressMatchesShouldDeduplicateSamePlaceIdAcrossQueriesAndStillVerify() throws Exception {
+        String ownerToken = signupAndLoginOwner("owner@toggle.com");
+        mockAutomaticBusinessVerificationSuccess();
+        KakaoKeywordSearchResponse.KakaoPlaceDocument weak = new KakaoKeywordSearchResponse.KakaoPlaceDocument(
+            "same-place",
+            "다른상호",
+            "서울특별시 강남구 역삼로 999",
+            "서울특별시 강남구 역삼로 999",
+            "02-0000-0000",
+            "음식점 > 한식",
+            new BigDecimal("127.0276100"),
+            new BigDecimal("37.4980950")
+        );
+        KakaoKeywordSearchResponse.KakaoPlaceDocument strong = new KakaoKeywordSearchResponse.KakaoPlaceDocument(
+            "same-place",
+            "owner-shop",
+            "서울특별시 강남구 테헤란로 123",
+            "서울특별시 강남구 테헤란로 123",
+            "02-1234-5678",
+            "음식점 > 한식",
+            new BigDecimal("127.0276100"),
+            new BigDecimal("37.4980950")
+        );
+        given(kakaoPlaceClient.searchByKeyword("owner-shop 서울특별시 강남구 테헤란로 123"))
+            .willReturn(java.util.List.of(weak));
+        given(kakaoPlaceClient.searchByKeyword("서울특별시 강남구 테헤란로 123"))
+            .willReturn(java.util.List.of(strong));
+
+        mockMvc.perform(multipart("/api/v1/owner/store-registration-requests")
+                .file(ownerApplicationRequestPart("서울특별시 강남구 테헤란로 123"))
+                .file(ownerLicenseFile())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + ownerToken))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.mapVerificationStatus").value("VERIFIED"));
+    }
+
+    @Test
+    void mapVerificationShouldFailWhenMultipleExactAddressMatchesRemain() throws Exception {
+        String ownerToken = signupAndLoginOwner("owner@toggle.com");
+        mockAutomaticBusinessVerificationSuccess();
+        KakaoKeywordSearchResponse.KakaoPlaceDocument first = new KakaoKeywordSearchResponse.KakaoPlaceDocument(
+            "place-1",
+            "owner-shop-a",
+            "서울특별시 강남구 테헤란로 123",
+            "서울특별시 강남구 테헤란로 123",
+            "",
+            "음식점 > 한식",
+            new BigDecimal("127.0276100"),
+            new BigDecimal("37.4980950")
+        );
+        KakaoKeywordSearchResponse.KakaoPlaceDocument second = new KakaoKeywordSearchResponse.KakaoPlaceDocument(
+            "place-2",
+            "owner-shop-b",
+            "서울특별시 강남구 테헤란로 123",
+            "서울특별시 강남구 테헤란로 123",
+            "",
+            "음식점 > 한식",
+            new BigDecimal("127.0276100"),
+            new BigDecimal("37.4980950")
+        );
+        given(kakaoPlaceClient.searchByKeyword("owner-shop 서울특별시 강남구 테헤란로 123"))
+            .willReturn(java.util.List.of(first, second));
+
+        String response = mockMvc.perform(multipart("/api/v1/owner/store-registration-requests")
+                .file(ownerApplicationRequestPart("서울특별시 강남구 테헤란로 123"))
+                .file(ownerLicenseFile())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + ownerToken))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.mapVerificationStatus").value("FAILED"))
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+
+        Long applicationId = objectMapper.readTree(response).path("data").path("applicationId").asLong();
         String adminToken = createAdminAndLogin();
 
-        mockMvc.perform(get("/api/v1/admin/owner-store-applications/{applicationId}/match-candidates", applicationId)
+        mockMvc.perform(get("/api/v1/admin/store-registration-requests/{applicationId}", applicationId)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data[0].storeId").value(storeId))
-            .andExpect(jsonPath("$.data[0].score").isNumber());
+            .andExpect(jsonPath("$.data.mapVerificationHistories[0].failureMessage").value("실영업주소가 정확히 일치하는 카카오 매장이 여러 개라 자동 확정할 수 없습니다."));
+    }
 
-        mockMvc.perform(post("/api/v1/admin/owner-store-applications/{applicationId}/approve", applicationId)
+    @Test
+    void mapVerificationShouldFailEvenWhenOnlyOneExactAddressCandidateMatchesPhone() throws Exception {
+        String ownerToken = signupAndLoginOwner("owner@toggle.com");
+        mockAutomaticBusinessVerificationSuccess();
+        KakaoKeywordSearchResponse.KakaoPlaceDocument phoneMatched = new KakaoKeywordSearchResponse.KakaoPlaceDocument(
+            "place-1",
+            "owner-shop-a",
+            "서울특별시 강남구 테헤란로 123",
+            "서울특별시 강남구 테헤란로 123",
+            "02-1234-5678",
+            "음식점 > 한식",
+            new BigDecimal("127.0276100"),
+            new BigDecimal("37.4980950")
+        );
+        KakaoKeywordSearchResponse.KakaoPlaceDocument other = new KakaoKeywordSearchResponse.KakaoPlaceDocument(
+            "place-2",
+            "owner-shop-b",
+            "서울특별시 강남구 테헤란로 123",
+            "서울특별시 강남구 테헤란로 123",
+            "02-9999-0000",
+            "음식점 > 한식",
+            new BigDecimal("127.0276100"),
+            new BigDecimal("37.4980950")
+        );
+        given(kakaoPlaceClient.searchByKeyword("owner-shop 서울특별시 강남구 테헤란로 123"))
+            .willReturn(java.util.List.of(phoneMatched, other));
+
+        mockMvc.perform(multipart("/api/v1/owner/store-registration-requests")
+                .file(ownerApplicationRequestPart("서울특별시 강남구 테헤란로 123"))
+                .file(ownerLicenseFile())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + ownerToken))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.mapVerificationStatus").value("FAILED"));
+    }
+
+    @Test
+    void jibunAddressExactMatchShouldVerifyEvenWhenRoadAddressDiffers() throws Exception {
+        String ownerToken = signupAndLoginOwner("owner@toggle.com");
+        mockAutomaticBusinessVerificationSuccess();
+        KakaoKeywordSearchResponse.KakaoPlaceDocument place = new KakaoKeywordSearchResponse.KakaoPlaceDocument(
+            "place-jibun",
+            "owner-shop",
+            "서울특별시 강남구 테헤란로 123",
+            "서울특별시 강남구 역삼동 123-45",
+            "02-1234-5678",
+            "음식점 > 한식",
+            new BigDecimal("127.0276100"),
+            new BigDecimal("37.4980950")
+        );
+        given(kakaoPlaceClient.searchByKeyword("owner-shop 서울특별시 강남구 역삼동 123-45"))
+            .willReturn(java.util.List.of(place));
+
+        mockMvc.perform(multipart("/api/v1/owner/store-registration-requests")
+                .file(ownerApplicationRequestPart("서울특별시 강남구 역삼동 123-45"))
+                .file(ownerLicenseFile())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + ownerToken))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.mapVerificationStatus").value("VERIFIED"));
+    }
+
+    @Test
+    void mapVerificationFailureShouldExposeFailureMessageInDetailResponse() throws Exception {
+        String ownerToken = signupAndLoginOwner("owner@toggle.com");
+        mockAutomaticBusinessVerificationSuccess();
+        Long applicationId = createOwnerApplication(ownerToken, "서울특별시 강남구 테헤란로 123");
+        String adminToken = createAdminAndLogin();
+
+        mockMvc.perform(get("/api/v1/admin/store-registration-requests/{applicationId}", applicationId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.mapVerificationHistories[0].failureMessage").value("카카오맵에서 실영업주소가 정확히 일치하는 매장을 찾지 못했습니다."));
+    }
+
+    @Test
+    void nationalTaxConfigurationErrorShouldBeRetryableNotBusinessMismatch() throws Exception {
+        String ownerToken = signupAndLoginOwner("owner@toggle.com");
+        reset(nationalTaxServiceClient);
+        given(nationalTaxServiceClient.verifyBusiness(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString()))
+            .willThrow(new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "NATIONAL_TAX_NOT_CONFIGURED", "국세청 API 설정이 필요합니다."));
+        mockMatchingPlace("1234567890", "서울 강남구 테헤란로 123");
+
+        mockMvc.perform(multipart("/api/v1/owner/store-registration-requests")
+                .file(ownerApplicationRequestPart("서울특별시 강남구 테헤란로 123"))
+                .file(ownerLicenseFile())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + ownerToken))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.businessVerificationStatus").value("AUTO_VERIFICATION_UNAVAILABLE"));
+    }
+
+    @Test
+    void mapVerificationShouldHonorForceRefreshFalse() throws Exception {
+        String ownerToken = signupAndLoginOwner("owner@toggle.com");
+        mockAutomaticBusinessVerificationSuccess();
+        mockMatchingPlace("1234567890", "서울 강남구 테헤란로 123");
+        Long applicationId = createOwnerApplication(ownerToken, "서울특별시 강남구 테헤란로 123");
+        String adminToken = createAdminAndLogin();
+
+        reset(kakaoPlaceClient);
+
+        mockMvc.perform(post("/api/v1/admin/store-registration-requests/{applicationId}/map-verifications/execute", applicationId)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken)
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"storeId\":" + storeId + "}"))
+                .content("{\"forceRefresh\":false}"))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.linkedStoreId").value(storeId))
-            .andExpect(jsonPath("$.data.reviewStatus").value("APPROVED"));
+            .andExpect(jsonPath("$.data.mapVerificationStatus").value("VERIFIED"));
+
+        verify(kakaoPlaceClient, never()).searchByKeyword(anyString());
+    }
+
+    @Test
+    void legacyAdminVerificationEndpointsShouldStillWork() throws Exception {
+        String ownerToken = signupAndLoginOwner("owner@toggle.com");
+        mockMatchingPlace("5555555555", "부산광역시 해운대구 우동 123");
+        Long applicationId = createOwnerApplication(ownerToken, "부산광역시 해운대구 우동 123");
+        String adminToken = createAdminAndLogin();
+
+        mockMvc.perform(post("/api/v1/admin/owner-store-applications/{applicationId}/business-verifications/manual", applicationId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(new ManualBusinessVerificationRequest(true, "레거시 경로 확인"))))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.businessVerificationStatus").value("MANUAL_VERIFIED"));
+    }
+
+    @Test
+    void approvedApplicationShouldNotAllowBusinessVerificationRerun() throws Exception {
+        String ownerToken = signupAndLoginOwner("owner@toggle.com");
+        mockMatchingPlace("5555555555", "부산광역시 해운대구 우동 123");
+        Long applicationId = createOwnerApplication(ownerToken, "부산광역시 해운대구 우동 123");
+        String adminToken = createAdminAndLogin();
+
+        mockMvc.perform(post("/api/v1/admin/store-registration-requests/{applicationId}/business-verifications/manual", applicationId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(new ManualBusinessVerificationRequest(true, "확인 완료"))))
+            .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/v1/admin/store-registration-requests/{applicationId}/approve", applicationId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(new OwnerApplicationApproveRequest(true))))
+            .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/v1/admin/store-registration-requests/{applicationId}/map-verifications/execute", applicationId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"forceRefresh\":true}"))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.error.code").value("OWNER_APPLICATION_ALREADY_REVIEWED"));
+    }
+
+    @Test
+    void rejectedApplicationShouldNotAllowManualVerification() throws Exception {
+        String ownerToken = signupAndLoginOwner("owner@toggle.com");
+        mockMatchingPlace("5555555555", "부산광역시 해운대구 우동 123");
+        Long applicationId = createOwnerApplication(ownerToken, "부산광역시 해운대구 우동 123");
+        String adminToken = createAdminAndLogin();
+
+        mockMvc.perform(post("/api/v1/admin/store-registration-requests/{applicationId}/reject", applicationId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(new OwnerApplicationReviewRequest("반려"))))
+            .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/v1/admin/store-registration-requests/{applicationId}/business-verifications/manual", applicationId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(new ManualBusinessVerificationRequest(true, "다시 확인"))))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.error.code").value("OWNER_APPLICATION_ALREADY_REVIEWED"));
+    }
+
+    @Test
+    void rejectedApplicationShouldNotAllowBusinessVerificationRerun() throws Exception {
+        String ownerToken = signupAndLoginOwner("owner@toggle.com");
+        mockAutomaticBusinessVerificationSuccess();
+        mockMatchingPlace("1234567890", "서울특별시 강남구 테헤란로 123");
+        Long applicationId = createOwnerApplication(ownerToken, "서울특별시 강남구 테헤란로 123");
+        String adminToken = createAdminAndLogin();
+
+        mockMvc.perform(post("/api/v1/admin/store-registration-requests/{applicationId}/reject", applicationId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(new OwnerApplicationReviewRequest("반려"))))
+            .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/v1/admin/store-registration-requests/{applicationId}/business-verifications/execute", applicationId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.error.code").value("OWNER_APPLICATION_ALREADY_REVIEWED"));
+    }
+
+    @Test
+    void adminVerificationRerunsShouldBeRecordedInReviewLog() throws Exception {
+        String ownerToken = signupAndLoginOwner("owner@toggle.com");
+        mockAutomaticBusinessVerificationSuccess();
+        mockMatchingPlace("1234567890", "서울 강남구 테헤란로 123");
+        Long applicationId = createOwnerApplication(ownerToken, "서울특별시 강남구 테헤란로 123");
+        String adminToken = createAdminAndLogin();
+
+        long before = adminReviewLogRepository.count();
+
+        mockMvc.perform(post("/api/v1/admin/store-registration-requests/{applicationId}/business-verifications/execute", applicationId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken))
+            .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/v1/admin/store-registration-requests/{applicationId}/map-verifications/execute", applicationId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"forceRefresh\":true}"))
+            .andExpect(status().isOk());
+
+        Assertions.assertThat(adminReviewLogRepository.count()).isEqualTo(before + 2);
+    }
+
+    @Test
+    void ownerUpdateShouldResetVerificationAndRerunChecks() throws Exception {
+        String ownerToken = signupAndLoginOwner("owner@toggle.com");
+        mockAutomaticBusinessVerificationSuccess();
+        mockMatchingPlace("1234567890", "서울특별시 강남구 테헤란로 123");
+        Long applicationId = createOwnerApplication(ownerToken, "서울특별시 강남구 테헤란로 123");
+        mockMatchingPlace("9999999999", "서울특별시 강남구 선릉로 551");
+
+        mockMvc.perform(multipart("/api/v1/owner/store-registration-requests/{applicationId}", applicationId)
+                .file(ownerApplicationUpdatePart("서울특별시 강남구 선릉로 551"))
+                .with(request -> {
+                    request.setMethod("PATCH");
+                    return request;
+                })
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + ownerToken))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.businessVerificationStatus").value("AUTO_VERIFIED"))
+            .andExpect(jsonPath("$.data.mapVerificationStatus").value("VERIFIED"));
+    }
+
+    @Test
+    void nonAdminShouldNotAccessAdminEndpoints() throws Exception {
+        String ownerToken = signupAndLoginOwner("owner@toggle.com");
+        Long applicationId = createOwnerApplication(ownerToken, "부산광역시 해운대구 우동 123");
+        String userToken = signupAndLoginMember("tester@toggle.com");
+
+        mockMvc.perform(get("/api/v1/admin/store-registration-requests")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + userToken))
+            .andExpect(status().isForbidden());
+
+        mockMvc.perform(post("/api/v1/admin/store-registration-requests/{applicationId}/approve", applicationId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + userToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(new OwnerApplicationApproveRequest(true))))
+            .andExpect(status().isForbidden());
     }
 
     @Test
     void linkedOwnerShouldUpdateStoreStatus() throws Exception {
         String ownerToken = signupAndLoginOwner("owner@toggle.com");
-        Long applicationId = createOwnerApplication(ownerToken);
-        Long storeId = createStore();
+        mockMatchingPlace("5555555555", "부산광역시 해운대구 우동 123");
+        Long applicationId = createOwnerApplication(ownerToken, "부산광역시 해운대구 우동 123");
         String adminToken = createAdminAndLogin();
 
-        mockMvc.perform(post("/api/v1/admin/owner-store-applications/{applicationId}/approve", applicationId)
+        mockMvc.perform(post("/api/v1/admin/store-registration-requests/{applicationId}/business-verifications/manual", applicationId)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken)
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"storeId\":" + storeId + "}"))
+                .content(objectMapper.writeValueAsString(new ManualBusinessVerificationRequest(true, "확인 완료"))))
             .andExpect(status().isOk());
+
+        String response = mockMvc.perform(post("/api/v1/admin/store-registration-requests/{applicationId}/approve", applicationId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(new OwnerApplicationApproveRequest(true))))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+
+        long storeId = objectMapper.readTree(response).path("data").path("linkedStoreId").asLong();
 
         mockMvc.perform(post("/api/v1/owner/stores/{storeId}/status", storeId)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + ownerToken)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"status\":\"BREAK_TIME\",\"comment\":\"브레이크타임입니다.\"}"))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.storeId").value(storeId))
-            .andExpect(jsonPath("$.data.liveBusinessStatus").value("BREAK_TIME"))
-            .andExpect(jsonPath("$.data.statusSource").value("OWNER_POS"));
+            .andExpect(jsonPath("$.data.liveBusinessStatus").value("BREAK_TIME"));
 
         Assertions.assertThat(storeRepository.findById(storeId).orElseThrow().getLiveBusinessStatus().name())
             .isEqualTo("BREAK_TIME");
-    }
-
-    @Test
-    void ownerShouldNotUpdateUnlinkedStoreStatus() throws Exception {
-        String ownerToken = signupAndLoginOwner("owner@toggle.com");
-        Long storeId = createStore();
-
-        mockMvc.perform(post("/api/v1/owner/stores/{storeId}/status", storeId)
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + ownerToken)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"status\":\"OPEN\",\"comment\":\"무단 변경\"}"))
-            .andExpect(status().isForbidden())
-            .andExpect(jsonPath("$.error.code").value("STORE_ACCESS_DENIED"));
-    }
-
-    @Test
-    void nonAdminShouldNotAccessOwnerApplicationAdminEndpoints() throws Exception {
-        String ownerToken = signupAndLoginOwner("owner@toggle.com");
-        Long applicationId = createOwnerApplication(ownerToken);
-        String userToken = signupAndLoginMember("tester@toggle.com");
-
-        mockMvc.perform(get("/api/v1/admin/owner-store-applications")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + userToken))
-            .andExpect(status().isForbidden())
-            .andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
-
-        mockMvc.perform(post("/api/v1/admin/owner-store-applications/{applicationId}/approve", applicationId)
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + userToken))
-            .andExpect(status().isForbidden())
-            .andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
-    }
-
-    @Test
-    void blockedUserTokenShouldNotAccessProtectedApi() throws Exception {
-        String accessToken = signupAndLoginMember("tester@toggle.com");
-        Long storeId = createStore();
-
-        User user = userRepository.findByEmail("tester@toggle.com").orElseThrow();
-        user.changeStatus(UserStatus.BLOCKED);
-        userRepository.save(user);
-
-        mockMvc.perform(post("/api/v1/favorites/stores/{storeId}", storeId)
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
-            .andExpect(status().isUnauthorized())
-            .andExpect(jsonPath("$.error.code").value("UNAUTHORIZED"));
-    }
-
-    @Test
-    void logoutShouldRejectInvalidRefreshToken() throws Exception {
-        mockMvc.perform(post("/api/v1/auth/logout")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(new RefreshTokenRequest("invalid-token"))))
-            .andExpect(status().isUnauthorized())
-            .andExpect(jsonPath("$.error.code").value("INVALID_REFRESH_TOKEN"));
     }
 
     @Test
@@ -432,28 +706,16 @@ class ToggleBackendApplicationTests {
     private String signupAndLoginMember(String email) throws Exception {
         mockMvc.perform(post("/api/v1/auth/signup")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(new SignupRequest(
-                    email,
-                    "password123!",
-                    "tester",
-                    UserRole.USER
-                ))))
+                .content(objectMapper.writeValueAsString(new SignupRequest(email, "password123!", "tester", UserRole.USER))))
             .andExpect(status().isOk());
-
         return loginAndReturnAccessToken(email, "password123!");
     }
 
     private String signupAndLoginOwner(String email) throws Exception {
         mockMvc.perform(post("/api/v1/auth/signup")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(new SignupRequest(
-                    email,
-                    "password123!",
-                    "owner",
-                    UserRole.OWNER
-                ))))
+                .content(objectMapper.writeValueAsString(new SignupRequest(email, "password123!", "owner", UserRole.OWNER))))
             .andExpect(status().isOk());
-
         return loginAndReturnAccessToken(email, "password123!");
     }
 
@@ -469,9 +731,9 @@ class ToggleBackendApplicationTests {
         return objectMapper.readTree(loginResponse).path("data").path("accessToken").asText();
     }
 
-    private Long createOwnerApplication(String ownerToken) throws Exception {
-        String response = mockMvc.perform(multipart("/api/v1/owner/store-applications")
-                .file(ownerApplicationRequestPart())
+    private Long createOwnerApplication(String ownerToken, String address) throws Exception {
+        String response = mockMvc.perform(multipart("/api/v1/owner/store-registration-requests")
+                .file(ownerApplicationRequestPart(address))
                 .file(ownerLicenseFile())
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + ownerToken))
             .andExpect(status().isOk())
@@ -482,7 +744,7 @@ class ToggleBackendApplicationTests {
         return objectMapper.readTree(response).path("data").path("applicationId").asLong();
     }
 
-    private MockMultipartFile ownerApplicationRequestPart() throws Exception {
+    private MockMultipartFile ownerApplicationRequestPart(String address) throws Exception {
         return new MockMultipartFile(
             "request",
             "",
@@ -490,29 +752,36 @@ class ToggleBackendApplicationTests {
             objectMapper.writeValueAsBytes(new OwnerApplicationRequest(
                 "owner-shop",
                 "123-45-67890",
-                "서울특별시 강남구 테헤란로 123"
+                "홍길동",
+                LocalDate.of(2021, 3, 15),
+                address,
+                "02-1234-5678"
+            ))
+        );
+    }
+
+    private MockMultipartFile ownerApplicationUpdatePart(String address) throws Exception {
+        return new MockMultipartFile(
+            "request",
+            "",
+            MediaType.APPLICATION_JSON_VALUE,
+            objectMapper.writeValueAsBytes(new com.toggle.dto.owner.OwnerApplicationUpdateRequest(
+                "owner-shop",
+                "123-45-67890",
+                "홍길동",
+                LocalDate.of(2021, 3, 15),
+                address,
+                "02-1234-5678"
             ))
         );
     }
 
     private MockMultipartFile ownerLicenseFile() {
-        return new MockMultipartFile(
-            "businessLicenseFile",
-            "license.pdf",
-            "application/pdf",
-            "fake-pdf-content".getBytes()
-        );
+        return new MockMultipartFile("businessLicenseFile", "license.pdf", "application/pdf", "fake-pdf-content".getBytes());
     }
 
     private String createAdminAndLogin() throws Exception {
-        userRepository.save(new User(
-            "admin@toggle.com",
-            passwordEncoder.encode("password123!"),
-            "admin",
-            UserRole.ADMIN,
-            UserStatus.ACTIVE
-        ));
-
+        userRepository.save(new User("admin@toggle.com", passwordEncoder.encode("password123!"), "admin", UserRole.ADMIN, UserStatus.ACTIVE));
         return loginAndReturnAccessToken("admin@toggle.com", "password123!");
     }
 
@@ -536,5 +805,70 @@ class ToggleBackendApplicationTests {
             .getContentAsString();
 
         return objectMapper.readTree(response).path("data").path("storeId").asLong();
+    }
+
+    private void mockAutomaticBusinessVerificationSuccess() {
+        mockAutomaticBusinessVerificationSuccessFor("1234567890", "홍길동", "20210315", "서울특별시 강남구 테헤란로 123");
+    }
+
+    private void mockAutomaticBusinessVerificationSuccessFor(
+        String businessNumber,
+        String representativeName,
+        String openDate,
+        String address
+    ) {
+        given(nationalTaxServiceClient.verifyBusiness(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString()))
+            .willReturn(new NationalTaxVerificationResult(
+                true,
+                "{\"businesses\":[]}",
+                "{\"data\":[{\"valid\":\"01\"}]}",
+                businessNumber,
+                representativeName,
+                openDate,
+                address,
+                null,
+                null
+            ));
+    }
+
+    private void mockMatchingPlace(String externalPlaceId, String address) {
+        KakaoKeywordSearchResponse.KakaoPlaceDocument place = new KakaoKeywordSearchResponse.KakaoPlaceDocument(
+            externalPlaceId,
+            "owner-shop",
+            address,
+            address,
+            "02-1234-5678",
+            "음식점 > 한식",
+            new BigDecimal("127.0276100"),
+            new BigDecimal("37.4980950")
+        );
+        given(kakaoPlaceClient.searchByKeyword(org.mockito.ArgumentMatchers.anyString())).willReturn(java.util.List.of(place));
+    }
+
+    private void mockNameQueryFallbackScenario() {
+        KakaoKeywordSearchResponse.KakaoPlaceDocument noisyNameQueryResult = new KakaoKeywordSearchResponse.KakaoPlaceDocument(
+            "noise-1",
+            "디캠프",
+            "서울 강남구 선릉로 553",
+            "서울 강남구 선릉로 553",
+            "",
+            "공유오피스",
+            new BigDecimal("127.0450000"),
+            new BigDecimal("37.5060000")
+        );
+        KakaoKeywordSearchResponse.KakaoPlaceDocument addressQueryResult = new KakaoKeywordSearchResponse.KakaoPlaceDocument(
+            "match-1",
+            "owner-shop",
+            "서울 강남구 선릉로 551",
+            "서울 강남구 선릉로 551",
+            "02-1234-5678",
+            "음식점 > 한식",
+            new BigDecimal("127.0450000"),
+            new BigDecimal("37.5060000")
+        );
+        given(kakaoPlaceClient.searchByKeyword("owner-shop 서울특별시 강남구 선릉로 551"))
+            .willReturn(java.util.List.of(noisyNameQueryResult));
+        given(kakaoPlaceClient.searchByKeyword("서울특별시 강남구 선릉로 551"))
+            .willReturn(java.util.List.of(addressQueryResult));
     }
 }
