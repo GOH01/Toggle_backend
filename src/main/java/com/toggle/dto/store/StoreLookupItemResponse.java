@@ -1,10 +1,10 @@
-package com.toggle.dto.favorite;
+package com.toggle.dto.store;
 
-import java.time.LocalDateTime;
 import java.util.List;
 
-public record FavoriteStoreListItemResponse(
+public record StoreLookupItemResponse(
     Long storeId,
+    String externalSource,
     String externalPlaceId,
     String name,
     String categoryName,
@@ -12,16 +12,19 @@ public record FavoriteStoreListItemResponse(
     String roadAddress,
     String jibunAddress,
     String phone,
-    String businessStatus,
     Double latitude,
     Double longitude,
+    String businessStatus,
+    String liveBusinessStatus,
+    String liveStatusSource,
+    boolean verified,
+    String verifiedAt,
     String ownerNotice,
     String openTime,
     String closeTime,
     String breakStart,
     String breakEnd,
     Double rating,
-    List<String> imageUrls,
-    LocalDateTime favoritedAt
+    List<String> imageUrls
 ) {
 }

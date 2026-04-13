@@ -2,6 +2,8 @@ package com.toggle.controller;
 
 import com.toggle.dto.store.ResolveStoreRequest;
 import com.toggle.dto.store.ResolveStoreResponse;
+import com.toggle.dto.store.StoreLookupRequest;
+import com.toggle.dto.store.StoreLookupResponse;
 import com.toggle.global.response.ApiResponse;
 import com.toggle.service.StoreService;
 import jakarta.validation.Valid;
@@ -23,5 +25,10 @@ public class StoreController {
     @PostMapping("/resolve")
     public ApiResponse<ResolveStoreResponse> resolveStore(@Valid @RequestBody ResolveStoreRequest request) {
         return ApiResponse.ok(storeService.resolveStore(request));
+    }
+
+    @PostMapping("/lookup")
+    public ApiResponse<StoreLookupResponse> lookupStores(@Valid @RequestBody StoreLookupRequest request) {
+        return ApiResponse.ok(storeService.lookupStores(request));
     }
 }

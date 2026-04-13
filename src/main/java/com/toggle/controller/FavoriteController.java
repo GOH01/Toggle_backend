@@ -31,6 +31,16 @@ public class FavoriteController {
         return ApiResponse.ok(favoriteService.removeFavorite(storeId));
     }
 
+    @PostMapping("/publics/{publicInstitutionId}")
+    public ApiResponse<FavoriteStoreResponse> addPublicFavorite(@PathVariable Long publicInstitutionId) {
+        return ApiResponse.ok(favoriteService.addPublicFavorite(publicInstitutionId));
+    }
+
+    @DeleteMapping("/publics/{publicInstitutionId}")
+    public ApiResponse<FavoriteStoreResponse> removePublicFavorite(@PathVariable Long publicInstitutionId) {
+        return ApiResponse.ok(favoriteService.removePublicFavorite(publicInstitutionId));
+    }
+
     @GetMapping
     public ApiResponse<FavoriteStoreListResponse> getFavoriteStores() {
         return ApiResponse.ok(favoriteService.getFavoriteStores());

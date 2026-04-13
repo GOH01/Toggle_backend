@@ -15,7 +15,11 @@ import com.toggle.global.config.JwtProperties;
 import com.toggle.global.exception.ApiException;
 import com.toggle.global.security.CustomUserPrincipal;
 import com.toggle.global.security.JwtTokenProvider;
+import com.toggle.repository.FavoriteRepository;
+import com.toggle.repository.PublicFavoriteRepository;
 import com.toggle.repository.UserRepository;
+import java.util.Collections;
+import java.util.List;
 import java.util.Locale;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -31,6 +35,8 @@ import org.springframework.transaction.annotation.Transactional;
 public class AuthService {
 
     private final UserRepository userRepository;
+    private final FavoriteRepository favoriteRepository;
+    private final PublicFavoriteRepository publicFavoriteRepository;
     private final PasswordEncoder passwordEncoder;
     private final AuthenticationManager authenticationManager;
     private final JwtTokenProvider jwtTokenProvider;
@@ -38,12 +44,16 @@ public class AuthService {
 
     public AuthService(
         UserRepository userRepository,
+        FavoriteRepository favoriteRepository,
+        PublicFavoriteRepository publicFavoriteRepository,
         PasswordEncoder passwordEncoder,
         AuthenticationManager authenticationManager,
         JwtTokenProvider jwtTokenProvider,
         JwtProperties jwtProperties
     ) {
         this.userRepository = userRepository;
+        this.favoriteRepository = favoriteRepository;
+        this.publicFavoriteRepository = publicFavoriteRepository;
         this.passwordEncoder = passwordEncoder;
         this.authenticationManager = authenticationManager;
         this.jwtTokenProvider = jwtTokenProvider;
@@ -114,12 +124,23 @@ public class AuthService {
 
     public MeResponse getCurrentUserProfile() {
         User user = getAuthenticatedUser();
+        List<Long> favoriteStoreIds = favoriteRepository.findAllByUserIdOrderByCreatedAtDesc(user.getId())
+            .stream()
+            .map(favorite -> favorite.getStore().getId())
+            .toList();
+
+        List<Long> favoritePublicIds = publicFavoriteRepository.findAllByUserIdOrderByCreatedAtDesc(user.getId())
+            .stream()
+            .map(favorite -> favorite.getPublicInstitution().getId())
+            .toList();
+
         return new MeResponse(
             user.getId(),
             user.getEmail(),
             user.getNickname(),
             user.getRole().name(),
-            user.getStatus().name()
+            user.getStatus().name(),
+            new MeResponse.Favorites(favoriteStoreIds, favoritePublicIds)
         );
     }
 

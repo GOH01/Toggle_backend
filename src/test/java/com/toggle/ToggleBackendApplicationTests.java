@@ -10,8 +10,10 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.toggle.dto.auth.LoginRequest;
@@ -24,8 +26,10 @@ import com.toggle.dto.owner.OwnerApplicationApproveRequest;
 import com.toggle.dto.owner.OwnerApplicationRequest;
 import com.toggle.dto.owner.OwnerApplicationReviewRequest;
 import com.toggle.dto.store.ResolveStoreRequest;
+import com.toggle.entity.BusinessStatus;
 import com.toggle.global.exception.ApiException;
 import com.toggle.entity.ExternalSource;
+import com.toggle.entity.LiveStatusSource;
 import com.toggle.entity.User;
 import com.toggle.entity.UserRole;
 import com.toggle.entity.UserStatus;
@@ -756,6 +760,126 @@ class ToggleBackendApplicationTests {
 
         Assertions.assertThat(secondStoreId).isEqualTo(firstStoreId);
         Assertions.assertThat(storeRepository.count()).isEqualTo(1);
+    }
+
+    @Test
+    void lookupStoresShouldReturnLiveStatusForMatchedExternalPlaceIds() throws Exception {
+        Long storeId = createStore();
+        com.toggle.entity.Store store = storeRepository.findById(storeId).orElseThrow();
+        store.markVerified(
+            "서울시 강남구 테헤란로 123",
+            "서울시 강남구 테헤란로 123",
+            "음식점",
+            "{}",
+            java.time.LocalDateTime.now()
+        );
+        store.updateLiveBusinessStatus(BusinessStatus.OPEN, LiveStatusSource.OWNER_POS);
+        storeRepository.save(store);
+
+        mockMvc.perform(post("/api/v1/stores/lookup")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "externalSource": "KAKAO",
+                      "externalPlaceIds": ["1234567890", "9999999999"]
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.stores[0].storeId").value(storeId))
+            .andExpect(jsonPath("$.data.stores[0].externalPlaceId").value("1234567890"))
+            .andExpect(jsonPath("$.data.stores[0].liveBusinessStatus").value("OPEN"))
+            .andExpect(jsonPath("$.data.stores[0].liveStatusSource").value("OWNER_POS"));
+    }
+
+    @Test
+    void lookupStoresShouldExcludeUnverifiedStores() throws Exception {
+        createStore();
+
+        mockMvc.perform(post("/api/v1/stores/lookup")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "externalSource": "KAKAO",
+                      "externalPlaceIds": ["1234567890"]
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.stores").isArray())
+            .andExpect(jsonPath("$.data.stores").isEmpty());
+    }
+
+    @Test
+    void ownerStoreProfileShouldPersistAndBeVisibleInOwnerAndLookupResponses() throws Exception {
+        String ownerToken = signupAndLoginOwner("owner@toggle.com");
+        mockAutomaticBusinessVerificationSuccess();
+        mockMatchingPlace("1234567890", "서울특별시 강남구 테헤란로 123");
+        Long applicationId = createOwnerApplication(ownerToken, "서울특별시 강남구 테헤란로 123");
+        String adminToken = createAdminAndLogin();
+
+        String approvalResponse = mockMvc.perform(post("/api/v1/admin/store-registration-requests/{applicationId}/approve", applicationId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(new OwnerApplicationApproveRequest(true))))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+
+        long storeId = objectMapper.readTree(approvalResponse).path("data").path("linkedStoreId").asLong();
+
+        mockMvc.perform(put("/api/v1/owner/stores/{storeId}/profile", storeId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + ownerToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "ownerNotice": "재료 소진 시 조기 마감될 수 있어요.",
+                      "openTime": "10:00",
+                      "closeTime": "22:00",
+                      "breakStart": "15:00",
+                      "breakEnd": "16:00",
+                      "imageUrls": [
+                        "data:image/png;base64,abc123",
+                        "https://images.example.com/store-1.jpg"
+                      ]
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.storeId").value(storeId))
+            .andExpect(jsonPath("$.data.ownerNotice").value("재료 소진 시 조기 마감될 수 있어요."))
+            .andExpect(jsonPath("$.data.openTime").value("10:00"))
+            .andExpect(jsonPath("$.data.imageUrls[0]").value("data:image/png;base64,abc123"));
+
+        mockMvc.perform(get("/api/v1/owner/stores")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + ownerToken))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data[0].storeId").value(storeId))
+            .andExpect(jsonPath("$.data[0].ownerNotice").value("재료 소진 시 조기 마감될 수 있어요."))
+            .andExpect(jsonPath("$.data[0].closeTime").value("22:00"))
+            .andExpect(jsonPath("$.data[0].imageUrls[1]").value("https://images.example.com/store-1.jpg"));
+
+        mockMvc.perform(post("/api/v1/stores/lookup")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "externalSource": "KAKAO",
+                      "externalPlaceIds": ["1234567890"]
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.stores[0].ownerNotice").value("재료 소진 시 조기 마감될 수 있어요."))
+            .andExpect(jsonPath("$.data.stores[0].openTime").value("10:00"))
+            .andExpect(jsonPath("$.data.stores[0].breakEnd").value("16:00"))
+            .andExpect(jsonPath("$.data.stores[0].imageUrls[0]").value("data:image/png;base64,abc123"));
+    }
+
+    @Test
+    void ownerStoreProfilePreflightShouldAllowPutFromFrontendOrigin() throws Exception {
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options("/api/v1/owner/stores/1/profile")
+                .header(HttpHeaders.ORIGIN, "http://127.0.0.1:4173")
+                .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "PUT"))
+            .andExpect(status().isOk())
+            .andExpect(header().string("Access-Control-Allow-Origin", "http://127.0.0.1:4173"))
+            .andExpect(header().string("Access-Control-Allow-Methods", org.hamcrest.Matchers.containsString("PUT")));
     }
 
     private String signupAndLoginMember(String email) throws Exception {

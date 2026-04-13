@@ -5,6 +5,7 @@ import com.toggle.dto.owner.OwnerApplicationResponse;
 import com.toggle.dto.owner.OwnerApplicationSummaryResponse;
 import com.toggle.dto.owner.OwnerApplicationUpdateRequest;
 import com.toggle.dto.owner.OwnerLinkedStoreResponse;
+import com.toggle.dto.owner.OwnerStoreProfileUpdateRequest;
 import com.toggle.dto.owner.OwnerStoreStatusResponse;
 import com.toggle.dto.owner.OwnerStoreStatusUpdateRequest;
 import com.toggle.global.response.ApiResponse;
@@ -17,6 +18,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestPart;
@@ -68,5 +70,13 @@ public class OwnerApplicationController {
         @Valid @RequestBody OwnerStoreStatusUpdateRequest request
     ) {
         return ApiResponse.ok(ownerApplicationService.updateOwnerStoreStatus(authService.getAuthenticatedUser(), storeId, request));
+    }
+
+    @PutMapping("/stores/{storeId}/profile")
+    public ApiResponse<OwnerLinkedStoreResponse> updateMyStoreProfile(
+        @PathVariable Long storeId,
+        @Valid @RequestBody OwnerStoreProfileUpdateRequest request
+    ) {
+        return ApiResponse.ok(ownerApplicationService.updateOwnerStoreProfile(authService.getAuthenticatedUser(), storeId, request));
     }
 }
