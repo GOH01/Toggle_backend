@@ -8,10 +8,14 @@ import com.toggle.entity.ExternalSource;
 import com.toggle.entity.PublicInstitution;
 import com.toggle.global.exception.ApiException;
 import com.toggle.repository.PublicInstitutionRepository;
+import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Random;
+import java.util.stream.Collectors;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,40 +33,65 @@ public class PublicInstitutionService {
     @Transactional
     public PublicInstitutionLookupResponse lookupInstitutions(PublicInstitutionLookupRequest request) {
         ExternalSource source = parseExternalSource(request.externalSource());
-        List<String> externalPlaceIds = request.externalPlaceIds().stream()
-            .map(String::trim)
-            .filter(id -> !id.isBlank())
-            .collect(java.util.stream.Collectors.collectingAndThen(
-                java.util.stream.Collectors.toCollection(LinkedHashSet::new),
-                List::copyOf
-            ));
-
-        if (externalPlaceIds.isEmpty()) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "EMPTY_EXTERNAL_PLACE_IDS", "조회할 외부 장소 ID가 없습니다.");
+        
+        List<PublicInstitutionLookupRequest.PublicInstitutionLookupItemRequest> items = request.items();
+        if (items == null || items.isEmpty()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "EMPTY_REQUEST_ITEMS", "조회할 장소 정보가 없습니다.");
         }
 
-        // DB에서 조회하고 없는 것은 목업용으로 자동 생성 (마이그레이션 단계)
-        List<PublicInstitution> existing = publicInstitutionRepository.findAllByExternalSourceAndExternalPlaceIdIn(source, externalPlaceIds);
-        
-        List<String> existingIds = existing.stream().map(PublicInstitution::getExternalPlaceId).toList();
-        
-        externalPlaceIds.stream()
-            .filter(id -> !existingIds.contains(id))
-            .forEach(id -> {
-                PublicInstitution pi = new PublicInstitution(source, id, "공공기관 " + id);
-                // 목업 데이터와 유사한 초기 상태 부여
-                CongestionLevel[] levels = CongestionLevel.values();
-                pi.updateStatus(levels[random.nextInt(4)], random.nextInt(30)); 
-                publicInstitutionRepository.save(pi);
-                existing.add(pi);
-            });
+        List<String> externalPlaceIds = items.stream()
+            .map(PublicInstitutionLookupRequest.PublicInstitutionLookupItemRequest::externalPlaceId)
+            .toList();
 
-        List<PublicInstitutionLookupItemResponse> institutions = existing.stream()
+        // DB에서 기존 항목 조회
+        List<PublicInstitution> existing = publicInstitutionRepository.findAllByExternalSourceAndExternalPlaceIdIn(source, externalPlaceIds);
+        Map<String, PublicInstitution> existingMap = existing.stream()
+            .collect(Collectors.toMap(PublicInstitution::getExternalPlaceId, pi -> pi));
+
+        List<PublicInstitution> results = new ArrayList<>();
+
+        for (var item : items) {
+            PublicInstitution pi = existingMap.get(item.externalPlaceId());
+            if (pi == null) {
+                // 신규 생성 (데이터 자동 생성 및 마이그레이션)
+                pi = new PublicInstitution(source, item.externalPlaceId(), item.name());
+                pi.updateMetadata(
+                    item.name(),
+                    item.address(),
+                    item.latitude() != null ? BigDecimal.valueOf(item.latitude()) : null,
+                    item.longitude() != null ? BigDecimal.valueOf(item.longitude()) : null,
+                    "09:00 - 18:00" // 기본 영업시간
+                );
+                
+                // 목업 상태 부여
+                CongestionLevel[] levels = CongestionLevel.values();
+                pi.updateStatus(levels[random.nextInt(4)], random.nextInt(30));
+                
+                publicInstitutionRepository.save(pi);
+            } else {
+                // 기존 데이터 메타데이터 보강 (주소나 좌표가 없는 경우)
+                if (pi.getAddress() == null && item.address() != null) {
+                    pi.updateMetadata(
+                        pi.getName(),
+                        item.address(),
+                        item.latitude() != null ? BigDecimal.valueOf(item.latitude()) : pi.getLatitude(),
+                        item.longitude() != null ? BigDecimal.valueOf(item.longitude()) : pi.getLongitude(),
+                        pi.getOperatingHours()
+                    );
+                }
+            }
+            results.add(pi);
+        }
+
+        List<PublicInstitutionLookupItemResponse> responses = results.stream()
             .map(pi -> new PublicInstitutionLookupItemResponse(
                 pi.getId(),
                 pi.getExternalSource().name(),
                 pi.getExternalPlaceId(),
                 pi.getName(),
+                pi.getAddress(),
+                pi.getLatitude() == null ? null : pi.getLatitude().doubleValue(),
+                pi.getLongitude() == null ? null : pi.getLongitude().doubleValue(),
                 pi.getCongestionLevel().name(),
                 pi.getWaitTime(),
                 pi.getOperatingHours(),
@@ -70,7 +99,7 @@ public class PublicInstitutionService {
             ))
             .toList();
 
-        return new PublicInstitutionLookupResponse(institutions);
+        return new PublicInstitutionLookupResponse(responses);
     }
 
     @Transactional(readOnly = true)

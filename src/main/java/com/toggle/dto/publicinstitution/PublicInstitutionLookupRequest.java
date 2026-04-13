@@ -7,6 +7,15 @@ public record PublicInstitutionLookupRequest(
     @NotEmpty
     String externalSource,
     @NotEmpty
-    List<String> externalPlaceIds
+    List<PublicInstitutionLookupItemRequest> items
 ) {
+    public record PublicInstitutionLookupItemRequest(
+        @NotEmpty
+        String externalPlaceId,
+        String name,
+        String address,
+        Double latitude,
+        Double longitude
+    ) {
+    }
 }

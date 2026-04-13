@@ -9,6 +9,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Entity
@@ -33,6 +34,15 @@ public class PublicInstitution extends BaseTimeEntity {
 
     @Column(nullable = false)
     private String name;
+
+    @Column
+    private String address;
+
+    @Column(precision = 10, scale = 7)
+    private BigDecimal latitude;
+
+    @Column(precision = 10, scale = 7)
+    private BigDecimal longitude;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
@@ -77,6 +87,18 @@ public class PublicInstitution extends BaseTimeEntity {
         return name;
     }
 
+    public String getAddress() {
+        return address;
+    }
+
+    public BigDecimal getLatitude() {
+        return latitude;
+    }
+
+    public BigDecimal getLongitude() {
+        return longitude;
+    }
+
     public CongestionLevel getCongestionLevel() {
         return congestionLevel;
     }
@@ -99,8 +121,11 @@ public class PublicInstitution extends BaseTimeEntity {
         this.statusUpdatedAt = LocalDateTime.now();
     }
 
-    public void updateMetadata(String name, String operatingHours) {
+    public void updateMetadata(String name, String address, BigDecimal latitude, BigDecimal longitude, String operatingHours) {
         this.name = name;
+        this.address = address;
+        this.latitude = latitude;
+        this.longitude = longitude;
         this.operatingHours = operatingHours;
     }
 }
