@@ -12,5 +12,9 @@ public interface StoreRepository extends JpaRepository<Store, Long> {
 
     List<Store> findAllByExternalSourceAndExternalPlaceIdIn(ExternalSource externalSource, List<String> externalPlaceIds);
 
+    List<Store> findAllByIdIn(List<Long> ids);
+
     List<Store> findTop10ByAddressNormalizedContaining(String addressNormalized);
+
+    List<Store> findAllByIsVerifiedTrueAndLatitudeIsNotNullAndLongitudeIsNotNull();
 }

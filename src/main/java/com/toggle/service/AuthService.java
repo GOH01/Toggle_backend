@@ -8,6 +8,7 @@ import com.toggle.dto.auth.MeResponse;
 import com.toggle.dto.auth.RefreshTokenRequest;
 import com.toggle.dto.auth.SignupRequest;
 import com.toggle.dto.auth.SignupResponse;
+import com.toggle.dto.user.UpdateMyMapProfileRequest;
 import com.toggle.entity.User;
 import com.toggle.entity.UserRole;
 import com.toggle.entity.UserStatus;
@@ -63,17 +64,27 @@ public class AuthService {
     @Transactional
     public SignupResponse signup(SignupRequest request) {
         String normalizedEmail = normalizeEmail(request.email());
-        String normalizedNickname = request.nickname().trim();
         UserRole role = resolveSignupRole(request.role());
+        String normalizedNickname = normalizeOptionalText(request.nickname());
+        String normalizedOwnerDisplayName = normalizeOptionalText(request.ownerDisplayName());
 
         if (userRepository.findByEmail(normalizedEmail).isPresent()) {
             throw new ApiException(HttpStatus.CONFLICT, "EMAIL_ALREADY_EXISTS", "이미 존재하는 이메일입니다.");
+        }
+        if (role == UserRole.USER) {
+            validateNickname(normalizedNickname);
+            if (userRepository.existsByNickname(normalizedNickname)) {
+                throw new ApiException(HttpStatus.CONFLICT, "NICKNAME_ALREADY_EXISTS", "이미 사용 중인 닉네임입니다.");
+            }
+        } else if (role == UserRole.OWNER) {
+            validateOwnerDisplayName(normalizedOwnerDisplayName);
         }
 
         User user = userRepository.save(new User(
             normalizedEmail,
             passwordEncoder.encode(request.password()),
-            normalizedNickname,
+            role == UserRole.USER ? normalizedNickname : null,
+            role == UserRole.OWNER ? normalizedOwnerDisplayName : null,
             role,
             UserStatus.ACTIVE
         ));
@@ -82,6 +93,7 @@ public class AuthService {
             user.getId(),
             user.getEmail(),
             user.getNickname(),
+            resolveDisplayName(user),
             user.getRole().name(),
             user.getStatus().name(),
             user.getCreatedAt()
@@ -124,24 +136,29 @@ public class AuthService {
 
     public MeResponse getCurrentUserProfile() {
         User user = getAuthenticatedUser();
-        List<Long> favoriteStoreIds = favoriteRepository.findAllByUserIdOrderByCreatedAtDesc(user.getId())
-            .stream()
-            .map(favorite -> favorite.getStore().getId())
-            .toList();
-
-        List<Long> favoritePublicIds = publicFavoriteRepository.findAllByUserIdOrderByCreatedAtDesc(user.getId())
-            .stream()
-            .map(favorite -> favorite.getPublicInstitution().getId())
-            .toList();
-
         return new MeResponse(
             user.getId(),
             user.getEmail(),
             user.getNickname(),
+            resolveDisplayName(user),
             user.getRole().name(),
             user.getStatus().name(),
-            new MeResponse.Favorites(favoriteStoreIds, favoritePublicIds)
+            new MeResponse.Favorites(getFavoriteStoreIds(user), getFavoritePublicIds(user)),
+            buildMapProfile(user)
         );
+    }
+
+    @Transactional
+    public MeResponse.MapProfile updateMyMapProfile(UpdateMyMapProfileRequest request) {
+        User user = getAuthenticatedUser();
+        user.updateMapProfile(
+            request.isPublic(),
+            normalizeNullableText(request.title()),
+            normalizeNullableText(request.description()),
+            normalizeNullableText(request.profileImageUrl())
+        );
+        userRepository.save(user);
+        return buildMapProfile(user);
     }
 
     public User getAuthenticatedUser() {
@@ -152,6 +169,19 @@ public class AuthService {
         }
 
         return requireActiveUser(principal.getId());
+    }
+
+    @Transactional(readOnly = true)
+    public User requirePublicMapOwner(String publicMapId) {
+        Long userId = parsePublicMapUserId(publicMapId);
+        User user = userRepository.findById(userId)
+            .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "PUBLIC_MAP_NOT_FOUND", "공개 지도를 찾을 수 없습니다."));
+
+        if (!user.isPublicMap()) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "PUBLIC_MAP_NOT_FOUND", "공개 지도를 찾을 수 없습니다.");
+        }
+
+        return user;
     }
 
     private AuthTokenResponse buildTokenResponse(User user) {
@@ -165,10 +195,104 @@ public class AuthService {
                 principal.getId(),
                 principal.getUsername(),
                 user.getNickname(),
+                resolveDisplayName(user),
                 principal.getAuthorities().iterator().next().getAuthority().replace("ROLE_", ""),
                 principal.getStatus()
             )
         );
+    }
+
+    private List<Long> getFavoriteStoreIds(User user) {
+        return favoriteRepository.findAllByUserIdOrderByCreatedAtDesc(user.getId())
+            .stream()
+            .map(favorite -> favorite.getStore().getId())
+            .toList();
+    }
+
+    private List<Long> getFavoritePublicIds(User user) {
+        return publicFavoriteRepository.findAllByUserIdOrderByCreatedAtDesc(user.getId())
+            .stream()
+            .map(favorite -> favorite.getPublicInstitution().getId())
+            .toList();
+    }
+
+    private MeResponse.MapProfile buildMapProfile(User user) {
+        return new MeResponse.MapProfile(
+            buildPublicMapId(user.getId()),
+            user.isPublicMap(),
+            resolveMapTitle(user),
+            user.getMapDescription(),
+            user.getProfileImageUrl()
+        );
+    }
+
+    private String resolveMapTitle(User user) {
+        String storedTitle = normalizeNullableText(user.getMapTitle());
+        if (storedTitle != null) {
+            return storedTitle;
+        }
+
+        return user.getNickname() + "님의 지도";
+    }
+
+    private String normalizeNullableText(String value) {
+        if (value == null) {
+            return null;
+        }
+
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private String normalizeOptionalText(String value) {
+        return normalizeNullableText(value);
+    }
+
+    private void validateNickname(String nickname) {
+        if (nickname == null || nickname.length() < 2 || nickname.length() > 30) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_NICKNAME", "닉네임은 2자 이상 30자 이하여야 합니다.");
+        }
+    }
+
+    private void validateOwnerDisplayName(String ownerDisplayName) {
+        if (ownerDisplayName == null || ownerDisplayName.length() < 2 || ownerDisplayName.length() > 30) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_OWNER_DISPLAY_NAME", "점주 표시명은 2자 이상 30자 이하여야 합니다.");
+        }
+    }
+
+    private String resolveDisplayName(User user) {
+        String nickname = normalizeOptionalText(user.getNickname());
+        if (nickname != null) {
+            return nickname;
+        }
+
+        String ownerDisplayName = normalizeOptionalText(user.getOwnerDisplayName());
+        if (ownerDisplayName != null) {
+            return ownerDisplayName;
+        }
+
+        String email = normalizeOptionalText(user.getEmail());
+        if (email == null) {
+            return "사용자";
+        }
+        int atIndex = email.indexOf('@');
+        return atIndex > 0 ? email.substring(0, atIndex) : email;
+    }
+
+    private String buildPublicMapId(Long userId) {
+        return "user-" + userId;
+    }
+
+    private Long parsePublicMapUserId(String publicMapId) {
+        if (publicMapId == null || !publicMapId.startsWith("user-")) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "PUBLIC_MAP_NOT_FOUND", "공개 지도를 찾을 수 없습니다.");
+        }
+
+        try {
+            return Long.parseLong(publicMapId.substring("user-".length()));
+        } catch (NumberFormatException ex) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "PUBLIC_MAP_NOT_FOUND", "공개 지도를 찾을 수 없습니다.");
+        }
     }
 
     private User requireActiveUser(Long userId) {

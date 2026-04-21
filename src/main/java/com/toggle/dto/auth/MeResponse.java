@@ -6,13 +6,24 @@ public record MeResponse(
     Long id,
     String email,
     String nickname,
+    String displayName,
     String role,
     String status,
-    Favorites favorites
+    Favorites favorites,
+    MapProfile mapProfile
 ) {
     public record Favorites(
         List<Long> stores,
         List<Long> publics
+    ) {
+    }
+
+    public record MapProfile(
+        String publicMapId,
+        boolean isPublic,
+        String title,
+        String description,
+        String profileImageUrl
     ) {
     }
 }

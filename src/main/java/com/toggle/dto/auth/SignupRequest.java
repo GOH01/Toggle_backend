@@ -18,9 +18,10 @@ public record SignupRequest(
     String password,
 
     @JsonDeserialize(using = TrimmedStringDeserializer.class)
-    @NotBlank
-    @Size(min = 2, max = 30)
     String nickname,
+
+    @JsonDeserialize(using = TrimmedStringDeserializer.class)
+    String ownerDisplayName,
 
     UserRole role
 ) {

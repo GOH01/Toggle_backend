@@ -23,8 +23,11 @@ public class User extends BaseTimeEntity {
     @Column(nullable = false)
     private String password;
 
-    @Column(nullable = false)
+    @Column(unique = true)
     private String nickname;
+
+    @Column(name = "owner_display_name")
+    private String ownerDisplayName;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
@@ -34,15 +37,32 @@ public class User extends BaseTimeEntity {
     @Column(nullable = false)
     private UserStatus status;
 
+    @Column(name = "is_public_map", nullable = false)
+    private boolean publicMap;
+
+    @Column(name = "map_title")
+    private String mapTitle;
+
+    @Column(name = "map_description", length = 1000)
+    private String mapDescription;
+
+    @Column(name = "profile_image_url", length = 100000)
+    private String profileImageUrl;
+
     protected User() {
     }
 
-    public User(String email, String password, String nickname, UserRole role, UserStatus status) {
+    public User(String email, String password, String nickname, String ownerDisplayName, UserRole role, UserStatus status) {
         this.email = email;
         this.password = password;
         this.nickname = nickname;
+        this.ownerDisplayName = ownerDisplayName;
         this.role = role;
         this.status = status;
+    }
+
+    public User(String email, String password, String nickname, UserRole role, UserStatus status) {
+        this(email, password, nickname, null, role, status);
     }
 
     public Long getId() {
@@ -57,6 +77,10 @@ public class User extends BaseTimeEntity {
         return nickname;
     }
 
+    public String getOwnerDisplayName() {
+        return ownerDisplayName;
+    }
+
     public String getPassword() {
         return password;
     }
@@ -69,7 +93,38 @@ public class User extends BaseTimeEntity {
         return status;
     }
 
+    public boolean isPublicMap() {
+        return publicMap;
+    }
+
+    public String getMapTitle() {
+        return mapTitle;
+    }
+
+    public String getMapDescription() {
+        return mapDescription;
+    }
+
+    public String getProfileImageUrl() {
+        return profileImageUrl;
+    }
+
     public void changeStatus(UserStatus status) {
         this.status = status;
+    }
+
+    public void updateMapProfile(Boolean publicMap, String mapTitle, String mapDescription, String profileImageUrl) {
+        if (publicMap != null) {
+            this.publicMap = publicMap;
+        }
+        if (mapTitle != null) {
+            this.mapTitle = mapTitle;
+        }
+        if (mapDescription != null) {
+            this.mapDescription = mapDescription;
+        }
+        if (profileImageUrl != null) {
+            this.profileImageUrl = profileImageUrl;
+        }
     }
 }

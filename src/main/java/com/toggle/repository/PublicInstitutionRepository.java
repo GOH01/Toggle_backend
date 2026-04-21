@@ -11,4 +11,6 @@ public interface PublicInstitutionRepository extends JpaRepository<PublicInstitu
     Optional<PublicInstitution> findByExternalSourceAndExternalPlaceId(ExternalSource externalSource, String externalPlaceId);
 
     List<PublicInstitution> findAllByExternalSourceAndExternalPlaceIdIn(ExternalSource externalSource, List<String> externalPlaceIds);
+
+    List<PublicInstitution> findAllByIdIn(List<Long> ids);
 }

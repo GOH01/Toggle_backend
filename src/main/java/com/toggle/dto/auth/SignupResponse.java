@@ -6,6 +6,7 @@ public record SignupResponse(
     Long userId,
     String email,
     String nickname,
+    String displayName,
     String role,
     String status,
     LocalDateTime createdAt

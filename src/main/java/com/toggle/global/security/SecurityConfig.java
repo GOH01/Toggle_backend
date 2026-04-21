@@ -54,9 +54,12 @@ public class SecurityConfig {
                     "/api/v1/auth/login",
                     "/api/v1/auth/refresh",
                     "/api/v1/auth/logout",
+                    "/api/v1/public-maps/**",
+                    "/api/v1/users/public-maps/**",
                     "/api/v1/stores/resolve",
                     "/api/v1/stores/lookup"
                 ).permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/v1/stores", "/api/v1/stores/nearby", "/api/v1/public-institutions").permitAll()
                 .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
                 .anyRequest().authenticated()
             )

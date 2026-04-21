@@ -5,6 +5,9 @@ import com.toggle.dto.publicinstitution.PublicInstitutionLookupResponse;
 import com.toggle.global.response.ApiResponse;
 import com.toggle.service.PublicInstitutionService;
 import jakarta.validation.Valid;
+import java.util.List;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -23,5 +26,10 @@ public class PublicInstitutionController {
     @PostMapping("/lookup")
     public ApiResponse<PublicInstitutionLookupResponse> lookupInstitutions(@Valid @RequestBody PublicInstitutionLookupRequest request) {
         return ApiResponse.ok(publicInstitutionService.lookupInstitutions(request));
+    }
+
+    @GetMapping
+    public ApiResponse<PublicInstitutionLookupResponse> getInstitutionsByIds(@RequestParam List<Long> ids) {
+        return ApiResponse.ok(publicInstitutionService.getInstitutionsByIds(ids));
     }
 }

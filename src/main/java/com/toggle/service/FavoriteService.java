@@ -117,6 +117,8 @@ public class FavoriteService {
                 favorite.getStore().getJibunAddress(),
                 favorite.getStore().getPhone(),
                 favorite.getStore().getBusinessStatus().name(),
+                favorite.getStore().getLiveBusinessStatus() == null ? null : favorite.getStore().getLiveBusinessStatus().name(),
+                favorite.getStore().getLiveStatusSource() == null ? null : favorite.getStore().getLiveStatusSource().name(),
                 favorite.getStore().getLatitude().doubleValue(),
                 favorite.getStore().getLongitude().doubleValue(),
                 favorite.getStore().getOwnerNotice(),

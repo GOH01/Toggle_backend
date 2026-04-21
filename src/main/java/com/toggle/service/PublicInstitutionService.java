@@ -108,11 +108,52 @@ public class PublicInstitutionService {
             .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "INSTITUTION_NOT_FOUND", "공공기관을 찾을 수 없습니다."));
     }
 
+    @Transactional(readOnly = true)
+    public PublicInstitutionLookupResponse getInstitutionsByIds(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "EMPTY_INSTITUTION_IDS", "조회할 공공기관 ID가 없습니다.");
+        }
+
+        List<Long> normalizedIds = ids.stream()
+            .filter(java.util.Objects::nonNull)
+            .collect(Collectors.collectingAndThen(
+                Collectors.toCollection(LinkedHashSet::new),
+                List::copyOf
+            ));
+
+        Map<Long, PublicInstitution> institutionMap = publicInstitutionRepository.findAllByIdIn(normalizedIds).stream()
+            .collect(Collectors.toMap(PublicInstitution::getId, institution -> institution));
+
+        List<PublicInstitutionLookupItemResponse> responses = normalizedIds.stream()
+            .map(institutionMap::get)
+            .filter(java.util.Objects::nonNull)
+            .map(this::toLookupItem)
+            .toList();
+
+        return new PublicInstitutionLookupResponse(responses);
+    }
+
     private ExternalSource parseExternalSource(String source) {
         try {
             return ExternalSource.valueOf(source.trim().toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException ex) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_EXTERNAL_SOURCE", "지원하지 않는 외부 장소 소스입니다.");
         }
+    }
+
+    private PublicInstitutionLookupItemResponse toLookupItem(PublicInstitution pi) {
+        return new PublicInstitutionLookupItemResponse(
+            pi.getId(),
+            pi.getExternalSource().name(),
+            pi.getExternalPlaceId(),
+            pi.getName(),
+            pi.getAddress(),
+            pi.getLatitude() == null ? null : pi.getLatitude().doubleValue(),
+            pi.getLongitude() == null ? null : pi.getLongitude().doubleValue(),
+            pi.getCongestionLevel().name(),
+            pi.getWaitTime(),
+            pi.getOperatingHours(),
+            pi.getStatusUpdatedAt() == null ? null : pi.getStatusUpdatedAt().toString()
+        );
     }
 }

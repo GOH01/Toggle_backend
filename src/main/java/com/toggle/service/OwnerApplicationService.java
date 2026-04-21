@@ -47,12 +47,14 @@ import com.toggle.repository.BusinessVerificationHistoryRepository;
 import com.toggle.repository.MapVerificationHistoryRepository;
 import com.toggle.repository.OwnerApplicationRepository;
 import com.toggle.repository.OwnerStoreLinkRepository;
+import com.toggle.repository.StoreRepository;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -74,6 +76,7 @@ public class OwnerApplicationService {
     private final AdminReviewLogRepository adminReviewLogRepository;
     private final OwnerDocumentStorageService ownerDocumentStorageService;
     private final AddressNormalizer addressNormalizer;
+    private final StoreRepository storeRepository;
     private final StoreService storeService;
     private final KakaoPlaceClient kakaoPlaceClient;
     private final NationalTaxServiceClient nationalTaxServiceClient;
@@ -87,6 +90,7 @@ public class OwnerApplicationService {
         AdminReviewLogRepository adminReviewLogRepository,
         OwnerDocumentStorageService ownerDocumentStorageService,
         AddressNormalizer addressNormalizer,
+        StoreRepository storeRepository,
         StoreService storeService,
         KakaoPlaceClient kakaoPlaceClient,
         NationalTaxServiceClient nationalTaxServiceClient,
@@ -99,6 +103,7 @@ public class OwnerApplicationService {
         this.adminReviewLogRepository = adminReviewLogRepository;
         this.ownerDocumentStorageService = ownerDocumentStorageService;
         this.addressNormalizer = addressNormalizer;
+        this.storeRepository = storeRepository;
         this.storeService = storeService;
         this.kakaoPlaceClient = kakaoPlaceClient;
         this.nationalTaxServiceClient = nationalTaxServiceClient;
@@ -608,6 +613,34 @@ public class OwnerApplicationService {
         }
 
         Candidate bestCandidate = narrowedCandidates.get(0);
+        Optional<Store> existingStore = storeRepository.findByExternalSourceAndExternalPlaceId(
+            ExternalSource.KAKAO,
+            bestCandidate.externalPlaceId()
+        );
+        if (existingStore.isPresent() && !isSameVerifiedStore(application, existingStore.get())) {
+            application.markMapVerificationFailed();
+            mapVerificationHistoryRepository.save(new MapVerificationHistory(
+                application,
+                bestCandidate.queryText(),
+                bestCandidate.queryType(),
+                VerificationRecordStatus.FAILED,
+                narrowedCandidates.size(),
+                bestCandidate.externalPlaceId(),
+                bestCandidate.storeName(),
+                bestCandidate.roadAddress(),
+                bestCandidate.jibunAddress(),
+                bestCandidate.phone(),
+                bestCandidate.categoryName(),
+                bestCandidate.latitude() == null ? null : bestCandidate.latitude().toPlainString(),
+                bestCandidate.longitude() == null ? null : bestCandidate.longitude().toPlainString(),
+                safeJson(narrowedCandidates),
+                existingStore.get(),
+                "KAKAO_PLACE_ALREADY_REGISTERED",
+                "이미 다른 점주가 등록한 매장입니다.",
+                LocalDateTime.now()
+            ));
+            return;
+        }
 
         ResolveStoreResponse resolvedStore = storeService.resolveStore(new ResolveStoreRequest(
             ExternalSource.KAKAO.name(),
@@ -793,6 +826,11 @@ public class OwnerApplicationService {
             .trim()
             .toLowerCase(Locale.ROOT)
             .replaceAll("[^0-9a-z가-힣]", "");
+    }
+
+    private boolean isSameVerifiedStore(OwnerApplication application, Store store) {
+        return application.getVerifiedStore() != null
+            && application.getVerifiedStore().getId().equals(store.getId());
     }
 
     private void ensureNoActiveDuplicateApplication(Long ownerUserId, String businessNumber, String businessAddress, Long currentApplicationId) {

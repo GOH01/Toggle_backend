@@ -13,6 +13,8 @@ public record FavoriteStoreListItemResponse(
     String jibunAddress,
     String phone,
     String businessStatus,
+    String liveBusinessStatus,
+    String liveStatusSource,
     Double latitude,
     Double longitude,
     String ownerNotice,
