@@ -63,8 +63,10 @@ public class SecurityConfig {
                     "/api/v1/stores",
                     "/api/v1/stores/nearby",
                     "/api/v1/public-institutions",
-                    "/api/v1/stores/*/reviews"
+                    "/api/v1/stores/*/reviews",
+                    "/api/v1/stores/*/menus"
                 ).permitAll()
+                .requestMatchers(HttpMethod.DELETE, "/api/v1/stores/*").hasRole("ADMIN")
                 .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
                 .anyRequest().authenticated()
             )

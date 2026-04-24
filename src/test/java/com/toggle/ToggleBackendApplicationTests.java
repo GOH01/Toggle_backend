@@ -44,6 +44,7 @@ import com.toggle.repository.MyMapStoreRepository;
 import com.toggle.repository.OwnerApplicationRepository;
 import com.toggle.repository.OwnerStoreLinkRepository;
 import com.toggle.repository.StoreRepository;
+import com.toggle.repository.StoreReviewRepository;
 import com.toggle.repository.UserRepository;
 import com.toggle.service.KakaoPlaceClient;
 import com.toggle.service.NationalTaxServiceClient;
@@ -108,6 +109,9 @@ class ToggleBackendApplicationTests {
     @Autowired
     private MyMapPublicInstitutionRepository myMapPublicInstitutionRepository;
 
+    @Autowired
+    private StoreReviewRepository storeReviewRepository;
+
     @MockBean
     private KakaoPlaceClient kakaoPlaceClient;
 
@@ -122,6 +126,7 @@ class ToggleBackendApplicationTests {
         adminReviewLogRepository.deleteAll();
         businessVerificationHistoryRepository.deleteAll();
         mapVerificationHistoryRepository.deleteAll();
+        storeReviewRepository.deleteAll();
         ownerStoreLinkRepository.deleteAll();
         ownerApplicationRepository.deleteAll();
         storeRepository.deleteAll();
@@ -1189,6 +1194,113 @@ class ToggleBackendApplicationTests {
             .andExpect(jsonPath("$.data.stores[0].openTime").value("10:00"))
             .andExpect(jsonPath("$.data.stores[0].breakEnd").value("16:00"))
             .andExpect(jsonPath("$.data.stores[0].imageUrls[0]").value("data:image/png;base64,abc123"));
+    }
+
+    @Test
+    void adminStoreDeleteShouldArchiveStoreUnlinkOwnerAndHideItEverywhere() throws Exception {
+        String ownerToken = signupAndLoginOwner("owner-delete@toggle.com");
+        String userToken = signupAndLoginMember("user-delete@toggle.com");
+        mockAutomaticBusinessVerificationSuccess();
+        mockMatchingPlace("1234567890", "서울특별시 강남구 테헤란로 123");
+        Long applicationId = createOwnerApplication(ownerToken, "서울특별시 강남구 테헤란로 123");
+        String adminToken = createAdminAndLogin();
+
+        String approvalResponse = mockMvc.perform(post("/api/v1/admin/store-registration-requests/{applicationId}/approve", applicationId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(new OwnerApplicationApproveRequest(true))))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+
+        long storeId = objectMapper.readTree(approvalResponse).path("data").path("linkedStoreId").asLong();
+
+        mockMvc.perform(post("/api/v1/favorites/stores/{storeId}", storeId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + userToken))
+            .andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/my-map/stores/{storeId}", storeId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + userToken))
+            .andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/stores/{storeId}/reviews", storeId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + userToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "rating": 5,
+                      "content": "삭제 전 리뷰"
+                    }
+                    """))
+            .andExpect(status().isOk());
+
+        mockMvc.perform(delete("/api/v1/stores/{storeId}", storeId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken)
+                .param("reason", "운영 종료"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.success").value(true));
+
+        Assertions.assertThat(storeRepository.findById(storeId).orElseThrow().isDeleted()).isTrue();
+
+        mockMvc.perform(get("/api/v1/owner/stores")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + ownerToken))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data").isArray())
+            .andExpect(jsonPath("$.data.length()").value(0));
+
+        mockMvc.perform(get("/api/v1/favorites/stores")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + userToken))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.content").isEmpty());
+
+        mockMvc.perform(get("/api/v1/my-map")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + userToken))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.stores").isEmpty());
+
+        mockMvc.perform(get("/api/v1/auth/me")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + userToken))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.favorites.stores").isEmpty());
+
+        mockMvc.perform(post("/api/v1/stores/lookup")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "externalSource": "KAKAO",
+                      "externalPlaceIds": ["1234567890"]
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.stores").isEmpty());
+
+        mockMvc.perform(get("/api/v1/stores/nearby")
+                .param("latitude", "37.4980950")
+                .param("longitude", "127.0276100")
+                .param("radiusMeters", "2000")
+                .param("limit", "10"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.stores").isEmpty());
+
+        mockMvc.perform(get("/api/v1/stores")
+                .param("ids", String.valueOf(storeId)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.stores").isEmpty());
+
+        mockMvc.perform(post("/api/v1/stores/{storeId}/reviews", storeId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + userToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "rating": 4,
+                      "content": "삭제 후 리뷰 시도"
+                    }
+                    """))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.error.code").value("STORE_NOT_FOUND"));
+
+        mockMvc.perform(get("/api/v1/stores/{storeId}/reviews", storeId))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.error.code").value("STORE_NOT_FOUND"));
     }
 
     @Test

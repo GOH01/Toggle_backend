@@ -28,9 +28,17 @@ public class Store extends BaseTimeEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    /**
+     * Current operational ownership and permissions should rely on OwnerStoreLink.
+     * This direct owner pointer remains as legacy metadata only.
+     */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "owner_id")
     private User owner;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "deleted_by")
+    private User deletedBy;
 
     @Column(name = "category_id")
     private Long categoryId;
@@ -120,6 +128,11 @@ public class Store extends BaseTimeEntity {
     @Column(nullable = false)
     private boolean isVerified;
 
+    private LocalDateTime deletedAt;
+
+    @Column(length = 1000)
+    private String deletedReason;
+
     protected Store() {
     }
 
@@ -153,6 +166,14 @@ public class Store extends BaseTimeEntity {
 
     public ExternalSource getExternalSource() {
         return externalSource;
+    }
+
+    public User getOwner() {
+        return owner;
+    }
+
+    public User getDeletedBy() {
+        return deletedBy;
     }
 
     public String getExternalPlaceId() {
@@ -213,6 +234,18 @@ public class Store extends BaseTimeEntity {
 
     public boolean isVerified() {
         return isVerified;
+    }
+
+    public boolean isDeleted() {
+        return deletedAt != null;
+    }
+
+    public LocalDateTime getDeletedAt() {
+        return deletedAt;
+    }
+
+    public String getDeletedReason() {
+        return deletedReason;
     }
 
     public BigDecimal getRating() {
@@ -309,5 +342,17 @@ public class Store extends BaseTimeEntity {
     public void updateReviewSummary(BigDecimal reviewAverageRating, long reviewCount) {
         this.reviewAverageRating = reviewAverageRating;
         this.reviewCount = reviewCount;
+    }
+
+    public void archive(User deletedBy, String deletedReason, LocalDateTime deletedAt) {
+        this.deletedBy = deletedBy;
+        this.deletedReason = deletedReason;
+        this.deletedAt = deletedAt;
+    }
+
+    public void restore() {
+        this.deletedBy = null;
+        this.deletedReason = null;
+        this.deletedAt = null;
     }
 }

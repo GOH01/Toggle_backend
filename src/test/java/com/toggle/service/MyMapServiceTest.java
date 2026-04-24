@@ -137,7 +137,7 @@ class MyMapServiceTest {
             UserStatus.ACTIVE,
             "toggle"
         )).thenReturn(java.util.List.of(user));
-        when(myMapStoreRepository.countByUserId(1L)).thenReturn(2L);
+        when(myMapStoreRepository.countByUserIdAndStoreDeletedAtIsNull(1L)).thenReturn(2L);
         when(myMapPublicInstitutionRepository.countByUserId(1L)).thenReturn(1L);
 
         PublicMapSearchResponse response = myMapService.searchPublicMaps("toggle");
@@ -149,6 +149,30 @@ class MyMapServiceTest {
         assertThat(response.content().get(0).description()).isEqualTo("설명 텍스트");
         assertThat(response.content().get(0).savedPlaceCount()).isEqualTo(3L);
         assertThat(response.content().get(0).profileImageUrl()).isEqualTo("https://cdn.example.com/profile.png");
+    }
+
+    @Test
+    void getMyMapShouldSkipSoftDeletedStores() {
+        MyMapService myMapService = new MyMapService(
+            authService,
+            storeService,
+            publicInstitutionService,
+            myMapStoreRepository,
+            myMapPublicInstitutionRepository,
+            userRepository
+        );
+
+        User user = new User("user@test.com", "password", "toggle-demo", UserRole.USER, UserStatus.ACTIVE);
+        ReflectionTestUtils.setField(user, "id", 1L);
+        ReflectionTestUtils.setField(user, "publicMap", true);
+        ReflectionTestUtils.setField(user, "publicMapUuid", "public-map-uuid");
+
+        when(authService.getAuthenticatedUser()).thenReturn(user);
+        when(authService.ensurePublicMapUuid(user)).thenReturn("public-map-uuid");
+        when(myMapStoreRepository.findAllByUserIdAndStoreDeletedAtIsNullOrderByCreatedAtDesc(1L)).thenReturn(java.util.List.of());
+        when(myMapPublicInstitutionRepository.findAllByUserIdOrderByCreatedAtDesc(1L)).thenReturn(java.util.List.of());
+
+        assertThat(myMapService.getMyMap().stores()).isEmpty();
     }
 
     @Test

@@ -5,9 +5,12 @@ import com.toggle.dto.store.ResolveStoreResponse;
 import com.toggle.dto.store.StoreLookupRequest;
 import com.toggle.dto.store.StoreLookupResponse;
 import com.toggle.global.response.ApiResponse;
+import com.toggle.service.AuthService;
 import com.toggle.service.StoreService;
 import jakarta.validation.Valid;
 import java.util.List;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -20,9 +23,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class StoreController {
 
     private final StoreService storeService;
+    private final AuthService authService;
 
-    public StoreController(StoreService storeService) {
+    public StoreController(StoreService storeService, AuthService authService) {
         this.storeService = storeService;
+        this.authService = authService;
     }
 
     @PostMapping("/resolve")
@@ -48,5 +53,14 @@ public class StoreController {
         @RequestParam(defaultValue = "30") int limit
     ) {
         return ApiResponse.ok(storeService.getNearbyVerifiedStores(latitude, longitude, radiusMeters, limit));
+    }
+
+    @DeleteMapping("/{storeId}")
+    public ApiResponse<Void> deleteStore(
+        @PathVariable Long storeId,
+        @RequestParam(required = false) String reason
+    ) {
+        storeService.softDeleteStore(storeId, authService.getAuthenticatedUser(), reason);
+        return ApiResponse.ok(null);
     }
 }

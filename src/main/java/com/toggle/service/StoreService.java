@@ -10,14 +10,18 @@ import com.toggle.dto.store.StoreLookupResponse;
 import com.toggle.entity.ExternalSource;
 import com.toggle.entity.LiveStatusSource;
 import com.toggle.entity.Store;
+import com.toggle.entity.User;
+import com.toggle.entity.UserRole;
 import com.toggle.global.exception.ApiException;
 import com.toggle.repository.FavoriteRepository;
+import com.toggle.repository.OwnerStoreLinkRepository;
+import com.toggle.repository.StoreRepository;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import com.toggle.repository.StoreRepository;
 import java.util.Locale;
+import java.time.LocalDateTime;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,17 +34,20 @@ public class StoreService {
 
     private final StoreRepository storeRepository;
     private final FavoriteRepository favoriteRepository;
+    private final OwnerStoreLinkRepository ownerStoreLinkRepository;
     private final AddressNormalizer addressNormalizer;
     private final ObjectMapper objectMapper;
 
     public StoreService(
         StoreRepository storeRepository,
         FavoriteRepository favoriteRepository,
+        OwnerStoreLinkRepository ownerStoreLinkRepository,
         AddressNormalizer addressNormalizer,
         ObjectMapper objectMapper
     ) {
         this.storeRepository = storeRepository;
         this.favoriteRepository = favoriteRepository;
+        this.ownerStoreLinkRepository = ownerStoreLinkRepository;
         this.addressNormalizer = addressNormalizer;
         this.objectMapper = objectMapper;
     }
@@ -62,6 +69,9 @@ public class StoreService {
 
         Store store = storeRepository.findByExternalSourceAndExternalPlaceId(source, normalizedExternalPlaceId)
             .map(existingStore -> {
+                if (existingStore.isDeleted()) {
+                    existingStore.restore();
+                }
                 existingStore.syncResolvedPlace(
                     normalizedName,
                     normalizedPhone,
@@ -101,7 +111,7 @@ public class StoreService {
             throw new ApiException(HttpStatus.BAD_REQUEST, "EMPTY_EXTERNAL_PLACE_IDS", "조회할 외부 장소 ID가 없습니다.");
         }
 
-        List<StoreLookupItemResponse> stores = storeRepository.findAllByExternalSourceAndExternalPlaceIdIn(source, externalPlaceIds)
+        List<StoreLookupItemResponse> stores = storeRepository.findAllByExternalSourceAndExternalPlaceIdInAndDeletedAtIsNull(source, externalPlaceIds)
             .stream()
             .filter(Store::isVerified)
             .map(store -> new StoreLookupItemResponse(
@@ -140,6 +150,7 @@ public class StoreService {
     @Transactional(readOnly = true)
     public Store getStore(Long storeId) {
         return storeRepository.findById(storeId)
+            .filter(store -> !store.isDeleted())
             .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "STORE_NOT_FOUND", "매장을 찾을 수 없습니다."));
     }
 
@@ -160,7 +171,7 @@ public class StoreService {
         ExternalSource source = parseExternalSource(request.externalSource());
         String normalizedExternalPlaceId = normalizeExternalPlaceId(request.externalPlaceId());
 
-        Store store = storeRepository.findByExternalSourceAndExternalPlaceId(source, normalizedExternalPlaceId)
+        Store store = storeRepository.findByExternalSourceAndExternalPlaceIdAndDeletedAtIsNull(source, normalizedExternalPlaceId)
             .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, STORE_NOT_REGISTERED_CODE, "등록된 매장이 아닙니다."));
 
         return ensureRegisteredStore(store);
@@ -179,7 +190,7 @@ public class StoreService {
                 List::copyOf
             ));
 
-        Map<Long, Store> storeMap = storeRepository.findAllByIdIn(normalizedIds).stream()
+        Map<Long, Store> storeMap = storeRepository.findAllByIdInAndDeletedAtIsNull(normalizedIds).stream()
             .collect(java.util.stream.Collectors.toMap(Store::getId, store -> store));
 
         List<StoreLookupItemResponse> stores = normalizedIds.stream()
@@ -207,7 +218,7 @@ public class StoreService {
 
         int effectiveLimit = Math.min(limit, MAX_NEARBY_LIMIT);
 
-        List<StoreLookupItemResponse> stores = storeRepository.findAllByIsVerifiedTrueAndLatitudeIsNotNullAndLongitudeIsNotNull()
+        List<StoreLookupItemResponse> stores = storeRepository.findAllByIsVerifiedTrueAndLatitudeIsNotNullAndLongitudeIsNotNullAndDeletedAtIsNull()
             .stream()
             .map(store -> new NearbyStoreCandidate(store, calculateDistanceMeters(
                 latitude,
@@ -229,6 +240,23 @@ public class StoreService {
         store.updateLiveBusinessStatus(status, source);
     }
 
+    @Transactional
+    public void softDeleteStore(Long storeId, User deletedBy, String deletedReason) {
+        if (deletedBy.getRole() != UserRole.ADMIN) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "ADMIN_ONLY", "관리자만 매장을 삭제할 수 있습니다.");
+        }
+
+        Store store = storeRepository.findById(storeId)
+            .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "STORE_NOT_FOUND", "매장을 찾을 수 없습니다."));
+        if (store.isDeleted()) {
+            throw new ApiException(HttpStatus.CONFLICT, "STORE_ALREADY_DELETED", "이미 삭제된 매장입니다.");
+        }
+
+        store.archive(deletedBy, normalizeDeletionReason(deletedReason), LocalDateTime.now());
+        ownerStoreLinkRepository.deleteByStoreId(storeId);
+        storeRepository.save(store);
+    }
+
     private ExternalSource parseExternalSource(String source) {
         try {
             return ExternalSource.valueOf(source.trim().toUpperCase(Locale.ROOT));
@@ -239,6 +267,15 @@ public class StoreService {
 
     private String normalizeExternalPlaceId(String externalPlaceId) {
         return externalPlaceId.trim();
+    }
+
+    private String normalizeDeletionReason(String deletedReason) {
+        if (deletedReason == null) {
+            return null;
+        }
+
+        String trimmed = deletedReason.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     private Store ensureRegisteredStore(Store store) {

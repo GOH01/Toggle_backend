@@ -13,7 +13,9 @@ public interface MyMapStoreRepository extends JpaRepository<MyMapStore, Long> {
     Optional<MyMapStore> findByUserIdAndStoreId(Long userId, Long storeId);
 
     @EntityGraph(attributePaths = "store")
-    List<MyMapStore> findAllByUserIdOrderByCreatedAtDesc(Long userId);
+    List<MyMapStore> findAllByUserIdAndStoreDeletedAtIsNullOrderByCreatedAtDesc(Long userId);
+
+    long countByUserIdAndStoreDeletedAtIsNull(Long userId);
 
     long countByUserId(Long userId);
 }

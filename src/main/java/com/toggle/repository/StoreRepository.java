@@ -13,15 +13,17 @@ public interface StoreRepository extends JpaRepository<Store, Long> {
 
     Optional<Store> findByExternalSourceAndExternalPlaceId(ExternalSource externalSource, String externalPlaceId);
 
-    List<Store> findAllByExternalSourceAndExternalPlaceIdIn(ExternalSource externalSource, List<String> externalPlaceIds);
+    Optional<Store> findByExternalSourceAndExternalPlaceIdAndDeletedAtIsNull(ExternalSource externalSource, String externalPlaceId);
 
-    List<Store> findAllByIdIn(List<Long> ids);
+    List<Store> findAllByExternalSourceAndExternalPlaceIdInAndDeletedAtIsNull(ExternalSource externalSource, List<String> externalPlaceIds);
 
-    List<Store> findTop10ByAddressNormalizedContaining(String addressNormalized);
+    List<Store> findAllByIdInAndDeletedAtIsNull(List<Long> ids);
 
-    List<Store> findAllByIsVerifiedTrueAndLatitudeIsNotNullAndLongitudeIsNotNull();
+    List<Store> findTop10ByAddressNormalizedContainingAndDeletedAtIsNull(String addressNormalized);
+
+    List<Store> findAllByIsVerifiedTrueAndLatitudeIsNotNullAndLongitudeIsNotNullAndDeletedAtIsNull();
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("select s from Store s where s.id = :id")
+    @Query("select s from Store s where s.id = :id and s.deletedAt is null")
     Optional<Store> findByIdForUpdate(Long id);
 }

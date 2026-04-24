@@ -7,6 +7,7 @@ public record OwnerLinkedStoreResponse(
     Long storeId,
     String storeName,
     String storeAddress,
+    String categoryName,
     String liveBusinessStatus,
     String ownerNotice,
     String openTime,

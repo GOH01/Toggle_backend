@@ -189,7 +189,7 @@ public class AuthService {
     }
 
     private List<Long> getFavoriteStoreIds(User user) {
-        return favoriteRepository.findAllByUserIdOrderByCreatedAtDesc(user.getId())
+        return favoriteRepository.findAllByUserIdAndStoreDeletedAtIsNullOrderByCreatedAtDesc(user.getId())
             .stream()
             .map(favorite -> favorite.getStore().getId())
             .toList();

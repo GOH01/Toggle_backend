@@ -16,12 +16,14 @@ public interface StoreReviewRepository extends JpaRepository<StoreReview, Long> 
             select r
             from StoreReview r
             where r.store.id = :storeId
+              and r.store.deletedAt is null
             order by r.createdAt desc, r.id desc
             """,
         countQuery = """
             select count(r)
             from StoreReview r
             where r.store.id = :storeId
+              and r.store.deletedAt is null
             """
     )
     Page<StoreReview> findAllByStoreIdOrderByCreatedAtDesc(@Param("storeId") Long storeId, Pageable pageable);
@@ -32,12 +34,14 @@ public interface StoreReviewRepository extends JpaRepository<StoreReview, Long> 
             select r
             from StoreReview r
             where r.store.id = :storeId
+              and r.store.deletedAt is null
             order by r.rating desc, r.createdAt desc, r.id desc
             """,
         countQuery = """
             select count(r)
             from StoreReview r
             where r.store.id = :storeId
+              and r.store.deletedAt is null
             """
     )
     Page<StoreReview> findAllByStoreIdOrderByRatingDescCreatedAtDescIdDesc(@Param("storeId") Long storeId, Pageable pageable);
@@ -48,12 +52,14 @@ public interface StoreReviewRepository extends JpaRepository<StoreReview, Long> 
             select r
             from StoreReview r
             where r.store.id = :storeId
+              and r.store.deletedAt is null
             order by r.rating asc, r.createdAt desc, r.id desc
             """,
         countQuery = """
             select count(r)
             from StoreReview r
             where r.store.id = :storeId
+              and r.store.deletedAt is null
             """
     )
     Page<StoreReview> findAllByStoreIdOrderByRatingAscCreatedAtDescIdDesc(@Param("storeId") Long storeId, Pageable pageable);
@@ -64,6 +70,7 @@ public interface StoreReviewRepository extends JpaRepository<StoreReview, Long> 
             select r
             from StoreReview r
             where r.store.id = :storeId
+              and r.store.deletedAt is null
               and r.user.id = :userId
             order by r.createdAt desc, r.id desc
             """,
@@ -71,6 +78,7 @@ public interface StoreReviewRepository extends JpaRepository<StoreReview, Long> 
             select count(r)
             from StoreReview r
             where r.store.id = :storeId
+              and r.store.deletedAt is null
               and r.user.id = :userId
             """
     )
@@ -86,6 +94,7 @@ public interface StoreReviewRepository extends JpaRepository<StoreReview, Long> 
             select r
             from StoreReview r
             where r.store.id = :storeId
+              and r.store.deletedAt is null
               and r.user.id = :userId
             order by r.rating desc, r.createdAt desc, r.id desc
             """,
@@ -93,6 +102,7 @@ public interface StoreReviewRepository extends JpaRepository<StoreReview, Long> 
             select count(r)
             from StoreReview r
             where r.store.id = :storeId
+              and r.store.deletedAt is null
               and r.user.id = :userId
             """
     )
@@ -108,6 +118,7 @@ public interface StoreReviewRepository extends JpaRepository<StoreReview, Long> 
             select r
             from StoreReview r
             where r.store.id = :storeId
+              and r.store.deletedAt is null
               and r.user.id = :userId
             order by r.rating asc, r.createdAt desc, r.id desc
             """,
@@ -115,6 +126,7 @@ public interface StoreReviewRepository extends JpaRepository<StoreReview, Long> 
             select count(r)
             from StoreReview r
             where r.store.id = :storeId
+              and r.store.deletedAt is null
               and r.user.id = :userId
             """
     )

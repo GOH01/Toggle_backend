@@ -9,10 +9,12 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface OwnerStoreLinkRepository extends JpaRepository<OwnerStoreLink, Long> {
 
     @EntityGraph(attributePaths = {"ownerUser", "store"})
-    List<OwnerStoreLink> findAllByOwnerUserId(Long ownerUserId);
+    List<OwnerStoreLink> findAllByOwnerUserIdAndStoreDeletedAtIsNull(Long ownerUserId);
 
     @EntityGraph(attributePaths = {"ownerUser", "store"})
-    Optional<OwnerStoreLink> findByOwnerUserIdAndStoreId(Long ownerUserId, Long storeId);
+    Optional<OwnerStoreLink> findByOwnerUserIdAndStoreIdAndStoreDeletedAtIsNull(Long ownerUserId, Long storeId);
 
-    boolean existsByStoreId(Long storeId);
+    boolean existsByStoreIdAndStoreDeletedAtIsNull(Long storeId);
+
+    void deleteByStoreId(Long storeId);
 }

@@ -212,9 +212,18 @@ public class OwnerApplicationService {
 
     @Transactional(readOnly = true)
     public List<OwnerLinkedStoreResponse> listLinkedStores(Long ownerUserId) {
-        return ownerStoreLinkRepository.findAllByOwnerUserId(ownerUserId).stream()
+        return ownerStoreLinkRepository.findAllByOwnerUserIdAndStoreDeletedAtIsNull(ownerUserId).stream()
             .map(this::toOwnerLinkedStoreResponse)
             .toList();
+    }
+
+    @Transactional
+    public void unlinkOwnerStore(User ownerUser, Long storeId) {
+        assertOwner(ownerUser);
+
+        OwnerStoreLink link = ownerStoreLinkRepository.findByOwnerUserIdAndStoreIdAndStoreDeletedAtIsNull(ownerUser.getId(), storeId)
+            .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "OWNER_STORE_LINK_NOT_FOUND", "연결된 매장을 찾을 수 없습니다."));
+        ownerStoreLinkRepository.delete(link);
     }
 
     @Transactional
@@ -324,7 +333,7 @@ public class OwnerApplicationService {
         if (!application.isApprovalReady()) {
             throw new ApiException(HttpStatus.CONFLICT, "STORE_REGISTRATION_NOT_APPROVABLE", "사업자 검증과 카카오맵 검증이 모두 완료되어야 승인할 수 있습니다.");
         }
-        if (ownerStoreLinkRepository.existsByStoreId(application.getVerifiedStore().getId())) {
+        if (ownerStoreLinkRepository.existsByStoreIdAndStoreDeletedAtIsNull(application.getVerifiedStore().getId())) {
             throw new ApiException(HttpStatus.CONFLICT, "STORE_ALREADY_LINKED", "이미 다른 점주에게 연결된 매장입니다.");
         }
 
@@ -386,7 +395,7 @@ public class OwnerApplicationService {
 
     @Transactional(readOnly = true)
     public List<OwnerStoreLinkResponse> listOwnerStoreLinks(Long ownerUserId) {
-        return ownerStoreLinkRepository.findAllByOwnerUserId(ownerUserId).stream()
+        return ownerStoreLinkRepository.findAllByOwnerUserIdAndStoreDeletedAtIsNull(ownerUserId).stream()
             .map(this::toOwnerStoreLinkResponse)
             .toList();
     }
@@ -394,7 +403,7 @@ public class OwnerApplicationService {
     @Transactional
     public OwnerStoreStatusResponse updateOwnerStoreStatus(User ownerUser, Long storeId, OwnerStoreStatusUpdateRequest request) {
         assertOwner(ownerUser);
-        OwnerStoreLink link = ownerStoreLinkRepository.findByOwnerUserIdAndStoreId(ownerUser.getId(), storeId)
+        OwnerStoreLink link = ownerStoreLinkRepository.findByOwnerUserIdAndStoreIdAndStoreDeletedAtIsNull(ownerUser.getId(), storeId)
             .orElseThrow(() -> new ApiException(HttpStatus.FORBIDDEN, "STORE_ACCESS_DENIED", "해당 매장을 관리할 권한이 없습니다."));
 
         BusinessStatus status = parseBusinessStatus(request.status());
@@ -412,7 +421,7 @@ public class OwnerApplicationService {
     @Transactional
     public OwnerLinkedStoreResponse updateOwnerStoreProfile(User ownerUser, Long storeId, OwnerStoreProfileUpdateRequest request) {
         assertOwner(ownerUser);
-        OwnerStoreLink link = ownerStoreLinkRepository.findByOwnerUserIdAndStoreId(ownerUser.getId(), storeId)
+        OwnerStoreLink link = ownerStoreLinkRepository.findByOwnerUserIdAndStoreIdAndStoreDeletedAtIsNull(ownerUser.getId(), storeId)
             .orElseThrow(() -> new ApiException(HttpStatus.FORBIDDEN, "STORE_ACCESS_DENIED", "해당 매장을 관리할 권한이 없습니다."));
 
         validateTimeField(request.openTime(), "영업 시작 시간");
@@ -613,7 +622,7 @@ public class OwnerApplicationService {
         }
 
         Candidate bestCandidate = narrowedCandidates.get(0);
-        Optional<Store> existingStore = storeRepository.findByExternalSourceAndExternalPlaceId(
+        Optional<Store> existingStore = storeRepository.findByExternalSourceAndExternalPlaceIdAndDeletedAtIsNull(
             ExternalSource.KAKAO,
             bestCandidate.externalPlaceId()
         );
@@ -954,6 +963,7 @@ public class OwnerApplicationService {
             link.getStore().getId(),
             link.getStore().getName(),
             link.getStore().getAddress(),
+            link.getStore().getCategoryName(),
             link.getStore().getLiveBusinessStatus().name(),
             link.getStore().getOwnerNotice(),
             link.getStore().getOperatingOpenTime(),

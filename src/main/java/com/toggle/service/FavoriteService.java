@@ -105,7 +105,7 @@ public class FavoriteService {
     public FavoriteStoreListResponse getFavoriteStores() {
         User user = authService.getAuthenticatedUser();
 
-        List<FavoriteStoreListItemResponse> items = favoriteRepository.findAllByUserIdOrderByCreatedAtDesc(user.getId())
+        List<FavoriteStoreListItemResponse> items = favoriteRepository.findAllByUserIdAndStoreDeletedAtIsNullOrderByCreatedAtDesc(user.getId())
             .stream()
             .map(favorite -> new FavoriteStoreListItemResponse(
                 favorite.getStore().getId(),

@@ -81,7 +81,7 @@ class FavoriteServiceTest {
         ReflectionTestUtils.setField(favorite, "createdAt", LocalDateTime.now());
 
         when(authService.getAuthenticatedUser()).thenReturn(user);
-        when(favoriteRepository.findAllByUserIdOrderByCreatedAtDesc(1L)).thenReturn(List.of(favorite));
+        when(favoriteRepository.findAllByUserIdAndStoreDeletedAtIsNullOrderByCreatedAtDesc(1L)).thenReturn(List.of(favorite));
         when(favoriteRepository.countByStoreId(101L)).thenReturn(27L);
 
         FavoriteStoreListResponse response = favoriteService.getFavoriteStores();
@@ -89,6 +89,28 @@ class FavoriteServiceTest {
         assertThat(response.content()).hasSize(1);
         assertThat(response.content().get(0).storeId()).isEqualTo(101L);
         assertThat(response.content().get(0).favoriteCount()).isEqualTo(27L);
+    }
+
+    @Test
+    void getFavoriteStoresShouldSkipSoftDeletedStores() {
+        FavoriteService favoriteService = new FavoriteService(
+            favoriteRepository,
+            publicFavoriteRepository,
+            authService,
+            storeService,
+            publicInstitutionService,
+            objectMapper
+        );
+
+        User user = new User("user@test.com", "password", "tester", UserRole.USER, UserStatus.ACTIVE);
+        ReflectionTestUtils.setField(user, "id", 1L);
+
+        when(authService.getAuthenticatedUser()).thenReturn(user);
+        when(favoriteRepository.findAllByUserIdAndStoreDeletedAtIsNullOrderByCreatedAtDesc(1L)).thenReturn(List.of());
+
+        FavoriteStoreListResponse response = favoriteService.getFavoriteStores();
+
+        assertThat(response.content()).isEmpty();
     }
 
     @Test

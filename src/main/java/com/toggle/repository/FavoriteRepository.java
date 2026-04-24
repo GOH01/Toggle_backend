@@ -15,5 +15,5 @@ public interface FavoriteRepository extends JpaRepository<Favorite, Long> {
     long countByStoreId(Long storeId);
 
     @EntityGraph(attributePaths = "store")
-    List<Favorite> findAllByUserIdOrderByCreatedAtDesc(Long userId);
+    List<Favorite> findAllByUserIdAndStoreDeletedAtIsNullOrderByCreatedAtDesc(Long userId);
 }

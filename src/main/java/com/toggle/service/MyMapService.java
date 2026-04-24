@@ -172,7 +172,7 @@ public class MyMapService {
     }
 
     private List<Long> getMyMapStoreIds(User user) {
-        return myMapStoreRepository.findAllByUserIdOrderByCreatedAtDesc(user.getId()).stream()
+        return myMapStoreRepository.findAllByUserIdAndStoreDeletedAtIsNullOrderByCreatedAtDesc(user.getId()).stream()
             .map(myMapStore -> myMapStore.getStore().getId())
             .toList();
     }
@@ -184,7 +184,7 @@ public class MyMapService {
     }
 
     private long getSavedPlaceCount(User user) {
-        return myMapStoreRepository.countByUserId(user.getId())
+        return myMapStoreRepository.countByUserIdAndStoreDeletedAtIsNull(user.getId())
             + myMapPublicInstitutionRepository.countByUserId(user.getId());
     }
 

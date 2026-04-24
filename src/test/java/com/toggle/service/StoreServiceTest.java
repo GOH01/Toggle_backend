@@ -6,18 +6,24 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.toggle.dto.store.ResolveStoreRequest;
+import com.toggle.dto.store.StoreLookupItemResponse;
 import com.toggle.dto.store.StoreLookupResponse;
 import com.toggle.entity.BusinessStatus;
 import com.toggle.entity.ExternalSource;
 import com.toggle.entity.LiveStatusSource;
 import com.toggle.entity.Store;
+import com.toggle.entity.User;
+import com.toggle.entity.UserRole;
+import com.toggle.entity.UserStatus;
 import com.toggle.global.exception.ApiException;
 import org.springframework.test.util.ReflectionTestUtils;
 import com.toggle.repository.FavoriteRepository;
+import com.toggle.repository.OwnerStoreLinkRepository;
 import com.toggle.repository.StoreRepository;
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -39,6 +45,9 @@ class StoreServiceTest {
 
     @Mock
     private FavoriteRepository favoriteRepository;
+
+    @Mock
+    private OwnerStoreLinkRepository ownerStoreLinkRepository;
 
     @Mock
     private AddressNormalizer addressNormalizer;
@@ -71,7 +80,7 @@ class StoreServiceTest {
         store.updateLiveBusinessStatus(BusinessStatus.OPEN, LiveStatusSource.SYSTEM);
         store.updateReviewSummary(new BigDecimal("4.7"), 12L);
 
-        when(storeRepository.findAllByIdIn(anyList())).thenReturn(List.of(store));
+        when(storeRepository.findAllByIdInAndDeletedAtIsNull(anyList())).thenReturn(List.of(store));
         when(favoriteRepository.countByStoreId(1L)).thenReturn(34L);
 
         StoreLookupResponse response = storeService.getStoresByIds(List.of(1L));
@@ -101,7 +110,7 @@ class StoreServiceTest {
             stores.add(store);
         }
 
-        when(storeRepository.findAllByIsVerifiedTrueAndLatitudeIsNotNullAndLongitudeIsNotNull()).thenReturn(stores);
+        when(storeRepository.findAllByIsVerifiedTrueAndLatitudeIsNotNullAndLongitudeIsNotNullAndDeletedAtIsNull()).thenReturn(stores);
         when(favoriteRepository.countByStoreId(anyLong())).thenReturn(0L);
 
         StoreLookupResponse response = storeService.getNearbyVerifiedStores(37.1234567, 127.1234567, 2000, 30);
@@ -155,6 +164,33 @@ class StoreServiceTest {
     }
 
     @Test
+    void getRegisteredStoreShouldRejectSoftDeletedStore() {
+        Store store = new Store(
+            ExternalSource.KAKAO,
+            "store-deleted-1",
+            "삭제된 매장",
+            "02-123-4567",
+            "서울시 테스트구 테스트로 2",
+            "서울시 테스트구 테스트로 2",
+            new BigDecimal("37.1234567"),
+            new BigDecimal("127.1234567")
+        );
+        ReflectionTestUtils.setField(store, "id", 22L);
+        store.markVerified("서울시 테스트구 테스트로 2", "서울시 테스트구 테스트로 2", "카페", "{}", null);
+        store.archive(new User("admin@test.com", "password", "admin", UserRole.ADMIN, UserStatus.ACTIVE), "삭제", java.time.LocalDateTime.now());
+
+        when(storeRepository.findById(22L)).thenReturn(Optional.of(store));
+
+        assertThatThrownBy(() -> storeService.getRegisteredStore(22L))
+            .isInstanceOf(ApiException.class)
+            .satisfies(throwable -> {
+                ApiException ex = (ApiException) throwable;
+                assertThat(ex.getStatus()).isEqualTo(HttpStatus.NOT_FOUND);
+                assertThat(ex.getCode()).isEqualTo("STORE_NOT_FOUND");
+            });
+    }
+
+    @Test
     void resolveRegisteredStoreShouldReturnVerifiedStoreWithoutCreatingNewOne() {
         Store store = new Store(
             ExternalSource.KAKAO,
@@ -169,7 +205,7 @@ class StoreServiceTest {
         ReflectionTestUtils.setField(store, "id", 3L);
         store.markVerified("서울시 테스트구 테스트로 3", "서울시 테스트구 테스트로 3", "카페", "{}", null);
 
-        when(storeRepository.findByExternalSourceAndExternalPlaceId(ExternalSource.KAKAO, "store-lookup-1"))
+        when(storeRepository.findByExternalSourceAndExternalPlaceIdAndDeletedAtIsNull(ExternalSource.KAKAO, "store-lookup-1"))
             .thenReturn(Optional.of(store));
 
         assertThat(storeService.resolveRegisteredStore(new ResolveStoreRequest(
@@ -208,5 +244,89 @@ class StoreServiceTest {
             assertThat(response.storeId()).isEqualTo(99L);
             assertThat(response.resolved()).isTrue();
         });
+    }
+
+    @Test
+    void resolveOrCreateStoreShouldRestoreArchivedStoreInsteadOfCreatingNewOne() {
+        Store store = new Store(
+            ExternalSource.KAKAO,
+            "archived-store-1",
+            "보관된 매장",
+            "02-123-4567",
+            "서울시 테스트구 테스트로 9",
+            "서울시 테스트구 테스트로 9",
+            new BigDecimal("37.1234567"),
+            new BigDecimal("127.1234567")
+        );
+        ReflectionTestUtils.setField(store, "id", 77L);
+        store.archive(new User("admin@test.com", "password", "admin", UserRole.ADMIN, UserStatus.ACTIVE), "삭제", java.time.LocalDateTime.now());
+
+        when(storeRepository.findByExternalSourceAndExternalPlaceId(ExternalSource.KAKAO, "archived-store-1"))
+            .thenReturn(Optional.of(store));
+
+        var response = storeService.resolveOrCreateStore(new ResolveStoreRequest(
+            "KAKAO",
+            "archived-store-1",
+            "복원된 매장",
+            "서울시 테스트구 테스트로 9",
+            "02-111-2222",
+            new BigDecimal("37.1234567"),
+            new BigDecimal("127.1234567")
+        ));
+
+        assertThat(response.storeId()).isEqualTo(77L);
+        assertThat(store.isDeleted()).isFalse();
+        assertThat(store.getName()).isEqualTo("복원된 매장");
+    }
+
+    @Test
+    void getStoresByIdsShouldSkipSoftDeletedStores() {
+        Store activeStore = new Store(
+            ExternalSource.KAKAO,
+            "store-active",
+            "활성 매장",
+            "02-123-4567",
+            "서울시 테스트구 테스트로 1",
+            "서울시 테스트구 테스트로 1",
+            new BigDecimal("37.1234567"),
+            new BigDecimal("127.1234567")
+        );
+        ReflectionTestUtils.setField(activeStore, "id", 1L);
+        activeStore.markVerified("서울시 테스트구 테스트로 1", "서울시 테스트구 테스트로 1", "카페", "{}", null);
+
+        when(storeRepository.findAllByIdInAndDeletedAtIsNull(anyList())).thenReturn(List.of(activeStore));
+        when(favoriteRepository.countByStoreId(1L)).thenReturn(0L);
+
+        StoreLookupResponse response = storeService.getStoresByIds(List.of(1L, 2L));
+
+        assertThat(response.stores()).extracting(StoreLookupItemResponse::storeId).containsExactly(1L);
+    }
+
+    @Test
+    void softDeleteStoreShouldArchiveStoreAndUnlinkOwnerStoreLinks() {
+        Store store = new Store(
+            ExternalSource.KAKAO,
+            "store-delete-1",
+            "삭제 대상 매장",
+            "02-123-4567",
+            "서울시 테스트구 테스트로 1",
+            "서울시 테스트구 테스트로 1",
+            new BigDecimal("37.1234567"),
+            new BigDecimal("127.1234567")
+        );
+        ReflectionTestUtils.setField(store, "id", 10L);
+
+        User admin = new User("admin@test.com", "password", "admin", UserRole.ADMIN, UserStatus.ACTIVE);
+        ReflectionTestUtils.setField(admin, "id", 99L);
+
+        when(storeRepository.findById(10L)).thenReturn(Optional.of(store));
+
+        storeService.softDeleteStore(10L, admin, "운영 종료");
+
+        assertThat(store.isDeleted()).isTrue();
+        assertThat(store.getDeletedReason()).isEqualTo("운영 종료");
+        assertThat(store.getDeletedBy()).isEqualTo(admin);
+        verify(ownerStoreLinkRepository).deleteByStoreId(10L);
+        verify(storeRepository).save(store);
     }
 }
