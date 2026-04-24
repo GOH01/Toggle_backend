@@ -642,7 +642,7 @@ public class OwnerApplicationService {
             return;
         }
 
-        ResolveStoreResponse resolvedStore = storeService.resolveStore(new ResolveStoreRequest(
+        ResolveStoreResponse resolvedStore = storeService.resolveOrCreateStore(new ResolveStoreRequest(
             ExternalSource.KAKAO.name(),
             bestCandidate.externalPlaceId(),
             bestCandidate.storeName(),

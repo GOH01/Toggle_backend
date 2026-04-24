@@ -111,6 +111,12 @@ public class Store extends BaseTimeEntity {
     @Column(precision = 2, scale = 1)
     private BigDecimal rating;
 
+    @Column(name = "review_average_rating", precision = 2, scale = 1)
+    private BigDecimal reviewAverageRating;
+
+    @Column(name = "review_count", nullable = false)
+    private long reviewCount;
+
     @Column(nullable = false)
     private boolean isVerified;
 
@@ -213,6 +219,14 @@ public class Store extends BaseTimeEntity {
         return rating;
     }
 
+    public BigDecimal getReviewAverageRating() {
+        return reviewAverageRating;
+    }
+
+    public long getReviewCount() {
+        return reviewCount;
+    }
+
     public String getOwnerNotice() {
         return ownerNotice;
     }
@@ -290,5 +304,10 @@ public class Store extends BaseTimeEntity {
         this.breakEndTime = breakEndTime;
         this.ownerImageUrlsJson = ownerImageUrlsJson;
         this.rating = rating;
+    }
+
+    public void updateReviewSummary(BigDecimal reviewAverageRating, long reviewCount) {
+        this.reviewAverageRating = reviewAverageRating;
+        this.reviewCount = reviewCount;
     }
 }

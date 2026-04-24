@@ -12,6 +12,8 @@ public interface FavoriteRepository extends JpaRepository<Favorite, Long> {
 
     Optional<Favorite> findByUserIdAndStoreId(Long userId, Long storeId);
 
+    long countByStoreId(Long storeId);
+
     @EntityGraph(attributePaths = "store")
     List<Favorite> findAllByUserIdOrderByCreatedAtDesc(Long userId);
 }

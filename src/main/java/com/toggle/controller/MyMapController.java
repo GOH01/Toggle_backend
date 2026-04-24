@@ -3,6 +3,7 @@ package com.toggle.controller;
 import com.toggle.dto.auth.MeResponse;
 import com.toggle.dto.user.MyMapPlaceResponse;
 import com.toggle.dto.user.MyMapResponse;
+import com.toggle.dto.user.PublicMapSearchResponse;
 import com.toggle.dto.user.UpdateMyMapProfileRequest;
 import com.toggle.dto.user.UserPublicMapResponse;
 import com.toggle.global.response.ApiResponse;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -59,8 +61,13 @@ public class MyMapController {
         return ApiResponse.ok(myMapService.removePublicInstitution(publicInstitutionId));
     }
 
-    @GetMapping({"/api/v1/public-maps/{publicMapId}", "/api/v1/users/public-maps/{publicMapId}"})
-    public ApiResponse<UserPublicMapResponse> getPublicMap(@PathVariable String publicMapId) {
-        return ApiResponse.ok(myMapService.getPublicMap(publicMapId));
+    @GetMapping("/api/v1/public-maps/search")
+    public ApiResponse<PublicMapSearchResponse> searchPublicMaps(@RequestParam String nickname) {
+        return ApiResponse.ok(myMapService.searchPublicMaps(nickname));
+    }
+
+    @GetMapping("/api/v1/public-maps/{publicMapUuid}")
+    public ApiResponse<UserPublicMapResponse> getPublicMap(@PathVariable String publicMapUuid) {
+        return ApiResponse.ok(myMapService.getPublicMap(publicMapUuid));
     }
 }

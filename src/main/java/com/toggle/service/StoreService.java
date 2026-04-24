@@ -11,6 +11,7 @@ import com.toggle.entity.ExternalSource;
 import com.toggle.entity.LiveStatusSource;
 import com.toggle.entity.Store;
 import com.toggle.global.exception.ApiException;
+import com.toggle.repository.FavoriteRepository;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -24,18 +25,34 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class StoreService {
 
+    private static final String STORE_NOT_REGISTERED_CODE = "STORE_NOT_REGISTERED";
+    private static final int MAX_NEARBY_LIMIT = 30;
+
     private final StoreRepository storeRepository;
+    private final FavoriteRepository favoriteRepository;
     private final AddressNormalizer addressNormalizer;
     private final ObjectMapper objectMapper;
 
-    public StoreService(StoreRepository storeRepository, AddressNormalizer addressNormalizer, ObjectMapper objectMapper) {
+    public StoreService(
+        StoreRepository storeRepository,
+        FavoriteRepository favoriteRepository,
+        AddressNormalizer addressNormalizer,
+        ObjectMapper objectMapper
+    ) {
         this.storeRepository = storeRepository;
+        this.favoriteRepository = favoriteRepository;
         this.addressNormalizer = addressNormalizer;
         this.objectMapper = objectMapper;
     }
 
+    @Transactional(readOnly = true)
+    public ResolveStoreResponse resolveRegisteredStore(ResolveStoreRequest request) {
+        Store store = findRegisteredStore(request);
+        return new ResolveStoreResponse(store.getId(), store.getExternalSource().name(), store.getExternalPlaceId(), true);
+    }
+
     @Transactional
-    public ResolveStoreResponse resolveStore(ResolveStoreRequest request) {
+    public ResolveStoreResponse resolveOrCreateStore(ResolveStoreRequest request) {
         ExternalSource source = parseExternalSource(request.externalSource());
         String normalizedExternalPlaceId = normalizeExternalPlaceId(request.externalPlaceId());
         String normalizedName = request.name().trim();
@@ -110,6 +127,9 @@ public class StoreService {
                 store.getBreakStartTime(),
                 store.getBreakEndTime(),
                 store.getRating() == null ? null : store.getRating().doubleValue(),
+                store.getReviewAverageRating() == null ? null : store.getReviewAverageRating().doubleValue(),
+                store.getReviewCount(),
+                favoriteRepository.countByStoreId(store.getId()),
                 deserializeImageUrls(store.getOwnerImageUrlsJson())
             ))
             .toList();
@@ -121,6 +141,29 @@ public class StoreService {
     public Store getStore(Long storeId) {
         return storeRepository.findById(storeId)
             .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "STORE_NOT_FOUND", "매장을 찾을 수 없습니다."));
+    }
+
+    @Transactional(readOnly = true)
+    public Store getRegisteredStore(Long storeId) {
+        return ensureRegisteredStore(getStore(storeId));
+    }
+
+    @Transactional
+    public Store getRegisteredStoreForUpdate(Long storeId) {
+        Store store = storeRepository.findByIdForUpdate(storeId)
+            .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "STORE_NOT_FOUND", "매장을 찾을 수 없습니다."));
+        return ensureRegisteredStore(store);
+    }
+
+    @Transactional(readOnly = true)
+    public Store findRegisteredStore(ResolveStoreRequest request) {
+        ExternalSource source = parseExternalSource(request.externalSource());
+        String normalizedExternalPlaceId = normalizeExternalPlaceId(request.externalPlaceId());
+
+        Store store = storeRepository.findByExternalSourceAndExternalPlaceId(source, normalizedExternalPlaceId)
+            .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, STORE_NOT_REGISTERED_CODE, "등록된 매장이 아닙니다."));
+
+        return ensureRegisteredStore(store);
     }
 
     @Transactional(readOnly = true)
@@ -162,6 +205,8 @@ public class StoreService {
             throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_LIMIT", "조회 개수는 0보다 커야 합니다.");
         }
 
+        int effectiveLimit = Math.min(limit, MAX_NEARBY_LIMIT);
+
         List<StoreLookupItemResponse> stores = storeRepository.findAllByIsVerifiedTrueAndLatitudeIsNotNullAndLongitudeIsNotNull()
             .stream()
             .map(store -> new NearbyStoreCandidate(store, calculateDistanceMeters(
@@ -172,7 +217,7 @@ public class StoreService {
             )))
             .filter(candidate -> candidate.distanceMeters() <= radiusMeters)
             .sorted(Comparator.comparingDouble(NearbyStoreCandidate::distanceMeters))
-            .limit(limit)
+            .limit(effectiveLimit)
             .map(candidate -> toLookupItem(candidate.store()))
             .toList();
 
@@ -194,6 +239,13 @@ public class StoreService {
 
     private String normalizeExternalPlaceId(String externalPlaceId) {
         return externalPlaceId.trim();
+    }
+
+    private Store ensureRegisteredStore(Store store) {
+        if (!store.isVerified()) {
+            throw new ApiException(HttpStatus.NOT_FOUND, STORE_NOT_REGISTERED_CODE, "등록된 매장이 아닙니다.");
+        }
+        return store;
     }
 
     private StoreLookupItemResponse toLookupItem(Store store) {
@@ -220,6 +272,9 @@ public class StoreService {
             store.getBreakStartTime(),
             store.getBreakEndTime(),
             store.getRating() == null ? null : store.getRating().doubleValue(),
+            store.getReviewAverageRating() == null ? null : store.getReviewAverageRating().doubleValue(),
+            store.getReviewCount(),
+            favoriteRepository.countByStoreId(store.getId()),
             deserializeImageUrls(store.getOwnerImageUrlsJson())
         );
     }

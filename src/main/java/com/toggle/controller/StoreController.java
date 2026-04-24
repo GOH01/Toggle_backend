@@ -27,7 +27,7 @@ public class StoreController {
 
     @PostMapping("/resolve")
     public ApiResponse<ResolveStoreResponse> resolveStore(@Valid @RequestBody ResolveStoreRequest request) {
-        return ApiResponse.ok(storeService.resolveStore(request));
+        return ApiResponse.ok(storeService.resolveRegisteredStore(request));
     }
 
     @PostMapping("/lookup")
@@ -45,7 +45,7 @@ public class StoreController {
         @RequestParam double latitude,
         @RequestParam double longitude,
         @RequestParam(defaultValue = "2000") int radiusMeters,
-        @RequestParam(defaultValue = "15") int limit
+        @RequestParam(defaultValue = "30") int limit
     ) {
         return ApiResponse.ok(storeService.getNearbyVerifiedStores(latitude, longitude, radiusMeters, limit));
     }

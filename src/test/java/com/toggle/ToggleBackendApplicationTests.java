@@ -170,7 +170,7 @@ class ToggleBackendApplicationTests {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.email").value("tester@toggle.com"))
             .andExpect(jsonPath("$.data.displayName").value("tester"))
-            .andExpect(jsonPath("$.data.mapProfile.publicMapId").value(startsWith("user-")))
+            .andExpect(jsonPath("$.data.mapProfile.publicMapUuid").isNotEmpty())
             .andExpect(jsonPath("$.data.mapProfile.isPublic").value(false))
             .andExpect(jsonPath("$.data.mapProfile.title").value("tester님의 지도"));
 
@@ -236,8 +236,8 @@ class ToggleBackendApplicationTests {
     @Test
     void myMapShouldStaySeparateFromFavoritesAndDrivePublicMapApis() throws Exception {
         String accessToken = signupAndLoginMember("public-map@toggle.com");
-        Long favoriteStoreId = createStore();
-        Long myMapStoreId = createStore("my-map-store");
+        Long favoriteStoreId = createStore("favorite-store", "찜 가능한 매장", "음식점", "37.4980950", "127.0276100");
+        Long myMapStoreId = createStore("my-map-store", "내 지도 매장", "카페", "37.4981950", "127.0277100");
 
         mockMvc.perform(post("/api/v1/favorites/stores/{storeId}", favoriteStoreId)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
@@ -264,12 +264,12 @@ class ToggleBackendApplicationTests {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.isPublic").value(true))
             .andExpect(jsonPath("$.data.title").value("테스터의 실전 지도"))
-            .andExpect(jsonPath("$.data.publicMapId").value(startsWith("user-")))
+            .andExpect(jsonPath("$.data.publicMapUuid").isNotEmpty())
             .andReturn()
             .getResponse()
             .getContentAsString();
 
-        String publicMapId = objectMapper.readTree(updateResponse).path("data").path("publicMapId").asText();
+        String publicMapUuid = objectMapper.readTree(updateResponse).path("data").path("publicMapUuid").asText();
 
         mockMvc.perform(get("/api/v1/auth/me")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
@@ -288,14 +288,23 @@ class ToggleBackendApplicationTests {
             .andExpect(jsonPath("$.data.stores[0]").value(myMapStoreId.intValue()))
             .andExpect(jsonPath("$.data.publics").isArray());
 
-        mockMvc.perform(get("/api/v1/public-maps/{publicMapId}", publicMapId))
+        mockMvc.perform(get("/api/v1/public-maps/{publicMapUuid}", publicMapUuid))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.publicMapId").value(publicMapId))
+            .andExpect(jsonPath("$.data.publicMapUuid").value(publicMapUuid))
             .andExpect(jsonPath("$.data.nickname").value("tester"))
             .andExpect(jsonPath("$.data.title").value("테스터의 실전 지도"))
             .andExpect(jsonPath("$.data.stores.length()").value(1))
             .andExpect(jsonPath("$.data.stores[0]").value(myMapStoreId.intValue()))
             .andExpect(jsonPath("$.data.publics").isArray());
+
+        mockMvc.perform(get("/api/v1/public-maps/search")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                .param("nickname", "test"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.content.length()").value(1))
+            .andExpect(jsonPath("$.data.content[0].publicMapUuid").value(publicMapUuid))
+            .andExpect(jsonPath("$.data.content[0].nickname").value("tester"))
+            .andExpect(jsonPath("$.data.content[0].title").value("테스터의 실전 지도"));
     }
 
     @Test
@@ -309,17 +318,38 @@ class ToggleBackendApplicationTests {
             .getResponse()
             .getContentAsString();
 
-        String publicMapId = objectMapper.readTree(meResponse).path("data").path("mapProfile").path("publicMapId").asText();
+        String publicMapUuid = objectMapper.readTree(meResponse).path("data").path("mapProfile").path("publicMapUuid").asText();
 
-        mockMvc.perform(get("/api/v1/public-maps/{publicMapId}", publicMapId))
+        mockMvc.perform(get("/api/v1/public-maps/{publicMapUuid}", publicMapUuid))
             .andExpect(status().isNotFound())
             .andExpect(jsonPath("$.error.code").value("PUBLIC_MAP_NOT_FOUND"));
     }
 
     @Test
+    void publicMapSearchShouldRequireLoginAndValidateNicknameLength() throws Exception {
+        mockMvc.perform(get("/api/v1/public-maps/search")
+                .param("nickname", "tester"))
+            .andExpect(status().isUnauthorized());
+
+        String accessToken = signupAndLoginMember("searcher@toggle.com");
+
+        mockMvc.perform(get("/api/v1/public-maps/search")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                .param("nickname", "a"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.code").value("INVALID_PUBLIC_MAP_SEARCH_QUERY"));
+
+        mockMvc.perform(get("/api/v1/public-maps/search")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                .param("nickname", "테스터"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.content").isArray());
+    }
+
+    @Test
     void myMapEndpointsShouldAddAndRemovePlacesIndependently() throws Exception {
         String accessToken = signupAndLoginMember("my-map@toggle.com");
-        Long storeId = createStore("my-map-target");
+        Long storeId = createStore("my-map-target", "내 지도 추가 대상", "카페", "37.4980950", "127.0276100");
 
         mockMvc.perform(post("/api/v1/my-map/stores/{storeId}", storeId)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
@@ -347,7 +377,7 @@ class ToggleBackendApplicationTests {
     @Test
     void favoriteEndpointsShouldRequireAuthenticationAndWorkWithJwt() throws Exception {
         String accessToken = signupAndLoginMember("tester@toggle.com");
-        Long storeId = createStore();
+        Long storeId = createStore("favorite-target", "찜 대상", "음식점", "37.4980950", "127.0276100");
         com.toggle.entity.Store store = storeRepository.findById(storeId).orElseThrow();
         store.updateLiveBusinessStatus(BusinessStatus.OPEN, LiveStatusSource.OWNER_POS);
         storeRepository.save(store);
@@ -366,6 +396,34 @@ class ToggleBackendApplicationTests {
             .andExpect(jsonPath("$.data.content[0].storeId").value(storeId.intValue()))
             .andExpect(jsonPath("$.data.content[0].liveBusinessStatus").value("OPEN"))
             .andExpect(jsonPath("$.data.content[0].liveStatusSource").value("OWNER_POS"));
+    }
+
+    @Test
+    void previewStoreActionsShouldBeRejectedForFavoritesMyMapAndReviews() throws Exception {
+        String accessToken = signupAndLoginMember("preview-guard@toggle.com");
+        Long previewStoreId = createStore("preview-store");
+
+        mockMvc.perform(post("/api/v1/favorites/stores/{storeId}", previewStoreId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.error.code").value("STORE_NOT_REGISTERED"));
+
+        mockMvc.perform(post("/api/v1/my-map/stores/{storeId}", previewStoreId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.error.code").value("STORE_NOT_REGISTERED"));
+
+        mockMvc.perform(post("/api/v1/stores/{storeId}/reviews", previewStoreId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "rating": 5,
+                      "content": "미등록 매장 리뷰"
+                    }
+                    """))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.error.code").value("STORE_NOT_REGISTERED"));
     }
 
     @Test
@@ -941,6 +999,25 @@ class ToggleBackendApplicationTests {
 
     @Test
     void resolveShouldNormalizeExternalPlaceIdAndReuseStore() throws Exception {
+        com.toggle.entity.Store existingStore = storeRepository.save(new com.toggle.entity.Store(
+            ExternalSource.KAKAO,
+            "1234567890",
+            "맛있는 덮밥집",
+            "02-1234-5678",
+            "서울시 강남구 테헤란로 123",
+            "서울시 강남구 테헤란로 123",
+            new BigDecimal("37.4980950"),
+            new BigDecimal("127.0276100")
+        ));
+        existingStore.markVerified(
+            "서울시 강남구 테헤란로 123",
+            "서울시 강남구 테헤란로 123",
+            "음식점",
+            "{}",
+            java.time.LocalDateTime.now()
+        );
+        storeRepository.save(existingStore);
+
         ResolveStoreRequest firstRequest = new ResolveStoreRequest(
             " kakao ",
             " 1234567890 ",
@@ -1225,28 +1302,19 @@ class ToggleBackendApplicationTests {
         String latitude,
         String longitude
     ) throws Exception {
-        ResolveStoreRequest request = new ResolveStoreRequest(
-            ExternalSource.KAKAO.name(),
-            externalPlaceId,
+        com.toggle.entity.Store store = storeRepository.save(new com.toggle.entity.Store(
+            ExternalSource.KAKAO,
+            externalPlaceId.trim(),
             name,
-            "서울시 강남구 테헤란로 123",
             "02-1234-5678",
+            "서울시 강남구 테헤란로 123",
+            "서울시 강남구 테헤란로 123",
             new BigDecimal(latitude),
             new BigDecimal(longitude)
-        );
-
-        String response = mockMvc.perform(post("/api/v1/stores/resolve")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(request)))
-            .andExpect(status().isOk())
-            .andReturn()
-            .getResponse()
-            .getContentAsString();
-
-        Long storeId = objectMapper.readTree(response).path("data").path("storeId").asLong();
+        ));
+        Long storeId = store.getId();
 
         if (categoryName != null) {
-            com.toggle.entity.Store store = storeRepository.findById(storeId).orElseThrow();
             store.markVerified(
                 "서울시 강남구 테헤란로 123",
                 "서울시 강남구 테헤란로 123",

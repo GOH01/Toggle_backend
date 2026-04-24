@@ -7,7 +7,9 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
+import java.util.UUID;
 
 @Entity
 @Table(name = "users")
@@ -25,6 +27,9 @@ public class User extends BaseTimeEntity {
 
     @Column(unique = true)
     private String nickname;
+
+    @Column(name = "public_map_uuid", unique = true, length = 36)
+    private String publicMapUuid;
 
     @Column(name = "owner_display_name")
     private String ownerDisplayName;
@@ -59,6 +64,7 @@ public class User extends BaseTimeEntity {
         this.ownerDisplayName = ownerDisplayName;
         this.role = role;
         this.status = status;
+        ensurePublicMapUuid();
     }
 
     public User(String email, String password, String nickname, UserRole role, UserStatus status) {
@@ -79,6 +85,10 @@ public class User extends BaseTimeEntity {
 
     public String getOwnerDisplayName() {
         return ownerDisplayName;
+    }
+
+    public String getPublicMapUuid() {
+        return publicMapUuid;
     }
 
     public String getPassword() {
@@ -126,5 +136,19 @@ public class User extends BaseTimeEntity {
         if (profileImageUrl != null) {
             this.profileImageUrl = profileImageUrl;
         }
+    }
+
+    public boolean ensurePublicMapUuid() {
+        if (publicMapUuid != null && !publicMapUuid.isBlank()) {
+            return false;
+        }
+
+        this.publicMapUuid = UUID.randomUUID().toString();
+        return true;
+    }
+
+    @PrePersist
+    void prePersist() {
+        ensurePublicMapUuid();
     }
 }

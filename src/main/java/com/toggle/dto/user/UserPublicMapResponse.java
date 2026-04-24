@@ -3,8 +3,7 @@ package com.toggle.dto.user;
 import java.util.List;
 
 public record UserPublicMapResponse(
-    String publicMapId,
-    Long userId,
+    String publicMapUuid,
     String nickname,
     String title,
     String description,

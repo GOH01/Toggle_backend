@@ -19,7 +19,7 @@ public record MeResponse(
     }
 
     public record MapProfile(
-        String publicMapId,
+        String publicMapUuid,
         boolean isPublic,
         String title,
         String description,

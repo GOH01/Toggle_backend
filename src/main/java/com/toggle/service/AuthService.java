@@ -19,7 +19,6 @@ import com.toggle.global.security.JwtTokenProvider;
 import com.toggle.repository.FavoriteRepository;
 import com.toggle.repository.PublicFavoriteRepository;
 import com.toggle.repository.UserRepository;
-import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import org.springframework.http.HttpStatus;
@@ -171,19 +170,6 @@ public class AuthService {
         return requireActiveUser(principal.getId());
     }
 
-    @Transactional(readOnly = true)
-    public User requirePublicMapOwner(String publicMapId) {
-        Long userId = parsePublicMapUserId(publicMapId);
-        User user = userRepository.findById(userId)
-            .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "PUBLIC_MAP_NOT_FOUND", "공개 지도를 찾을 수 없습니다."));
-
-        if (!user.isPublicMap()) {
-            throw new ApiException(HttpStatus.NOT_FOUND, "PUBLIC_MAP_NOT_FOUND", "공개 지도를 찾을 수 없습니다.");
-        }
-
-        return user;
-    }
-
     private AuthTokenResponse buildTokenResponse(User user) {
         CustomUserPrincipal principal = new CustomUserPrincipal(user);
         return new AuthTokenResponse(
@@ -217,8 +203,9 @@ public class AuthService {
     }
 
     private MeResponse.MapProfile buildMapProfile(User user) {
+        String publicMapUuid = ensurePublicMapUuid(user);
         return new MeResponse.MapProfile(
-            buildPublicMapId(user.getId()),
+            publicMapUuid,
             user.isPublicMap(),
             resolveMapTitle(user),
             user.getMapDescription(),
@@ -279,20 +266,13 @@ public class AuthService {
         return atIndex > 0 ? email.substring(0, atIndex) : email;
     }
 
-    private String buildPublicMapId(Long userId) {
-        return "user-" + userId;
-    }
-
-    private Long parsePublicMapUserId(String publicMapId) {
-        if (publicMapId == null || !publicMapId.startsWith("user-")) {
-            throw new ApiException(HttpStatus.NOT_FOUND, "PUBLIC_MAP_NOT_FOUND", "공개 지도를 찾을 수 없습니다.");
+    public String ensurePublicMapUuid(User user) {
+        if (!user.ensurePublicMapUuid()) {
+            return user.getPublicMapUuid();
         }
 
-        try {
-            return Long.parseLong(publicMapId.substring("user-".length()));
-        } catch (NumberFormatException ex) {
-            throw new ApiException(HttpStatus.NOT_FOUND, "PUBLIC_MAP_NOT_FOUND", "공개 지도를 찾을 수 없습니다.");
-        }
+        userRepository.save(user);
+        return user.getPublicMapUuid();
     }
 
     private User requireActiveUser(Long userId) {

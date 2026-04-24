@@ -14,4 +14,6 @@ public interface MyMapPublicInstitutionRepository extends JpaRepository<MyMapPub
 
     @EntityGraph(attributePaths = "publicInstitution")
     List<MyMapPublicInstitution> findAllByUserIdOrderByCreatedAtDesc(Long userId);
+
+    long countByUserId(Long userId);
 }

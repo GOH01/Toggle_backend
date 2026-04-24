@@ -25,6 +25,9 @@ public record StoreLookupItemResponse(
     String breakStart,
     String breakEnd,
     Double rating,
+    Double reviewAverageRating,
+    long reviewCount,
+    long favoriteCount,
     List<String> imageUrls
 ) {
 }

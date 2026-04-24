@@ -48,7 +48,7 @@ public class FavoriteService {
     @Transactional
     public FavoriteStoreResponse addFavorite(Long storeId) {
         User user = authService.getAuthenticatedUser();
-        Store store = storeService.getStore(storeId);
+        Store store = storeService.getRegisteredStore(storeId);
 
         if (favoriteRepository.existsByUserIdAndStoreId(user.getId(), store.getId())) {
             throw new ApiException(HttpStatus.CONFLICT, "FAVORITE_ALREADY_EXISTS", "이미 즐겨찾기한 매장입니다.");
@@ -127,6 +127,8 @@ public class FavoriteService {
                 favorite.getStore().getBreakStartTime(),
                 favorite.getStore().getBreakEndTime(),
                 favorite.getStore().getRating() == null ? null : favorite.getStore().getRating().doubleValue(),
+                favorite.getStore().isVerified(),
+                favoriteRepository.countByStoreId(favorite.getStore().getId()),
                 deserializeImageUrls(favorite.getStore().getOwnerImageUrlsJson()),
                 favorite.getCreatedAt()
             ))

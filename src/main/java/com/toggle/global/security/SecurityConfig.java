@@ -4,7 +4,6 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.Customizer;
-import org.springframework.context.annotation.Bean;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.ProviderManager;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
@@ -50,16 +49,22 @@ public class SecurityConfig {
                 .requestMatchers(
                     "/api/health",
                     "/actuator/health",
-                    "/api/v1/auth/signup",
-                    "/api/v1/auth/login",
-                    "/api/v1/auth/refresh",
-                    "/api/v1/auth/logout",
-                    "/api/v1/public-maps/**",
-                    "/api/v1/users/public-maps/**",
-                    "/api/v1/stores/resolve",
-                    "/api/v1/stores/lookup"
+                "/api/v1/auth/signup",
+                "/api/v1/auth/login",
+                "/api/v1/auth/refresh",
+                "/api/v1/auth/logout",
+                "/api/v1/stores/resolve",
+                "/api/v1/stores/lookup"
+            ).permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/v1/public-maps/search").authenticated()
+                .requestMatchers(HttpMethod.GET, "/api/v1/public-maps/*").permitAll()
+                .requestMatchers(
+                    HttpMethod.GET,
+                    "/api/v1/stores",
+                    "/api/v1/stores/nearby",
+                    "/api/v1/public-institutions",
+                    "/api/v1/stores/*/reviews"
                 ).permitAll()
-                .requestMatchers(HttpMethod.GET, "/api/v1/stores", "/api/v1/stores/nearby", "/api/v1/public-institutions").permitAll()
                 .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
                 .anyRequest().authenticated()
             )

@@ -23,6 +23,8 @@ public record FavoriteStoreListItemResponse(
     String breakStart,
     String breakEnd,
     Double rating,
+    boolean verified,
+    long favoriteCount,
     List<String> imageUrls,
     LocalDateTime favoritedAt
 ) {
