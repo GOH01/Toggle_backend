@@ -235,6 +235,16 @@ public class StoreService {
         return new StoreLookupResponse(stores);
     }
 
+    @Transactional(readOnly = true)
+    public StoreLookupResponse listStoresForAdmin() {
+        List<StoreLookupItemResponse> stores = storeRepository.findAllByDeletedAtIsNullOrderByIdDesc()
+            .stream()
+            .map(this::toLookupItem)
+            .toList();
+
+        return new StoreLookupResponse(stores);
+    }
+
     @Transactional
     public void updateStoreLiveStatus(Store store, com.toggle.entity.BusinessStatus status, LiveStatusSource source) {
         store.updateLiveBusinessStatus(status, source);
@@ -298,8 +308,8 @@ public class StoreService {
             store.getPhone(),
             store.getLatitude() == null ? null : store.getLatitude().doubleValue(),
             store.getLongitude() == null ? null : store.getLongitude().doubleValue(),
-            store.getBusinessStatus().name(),
-            store.getLiveBusinessStatus().name(),
+            store.getBusinessStatus() == null ? null : store.getBusinessStatus().name(),
+            store.getLiveBusinessStatus() == null ? null : store.getLiveBusinessStatus().name(),
             store.getLiveStatusSource() == null ? null : store.getLiveStatusSource().name(),
             store.isVerified(),
             store.getVerifiedAt() == null ? null : store.getVerifiedAt().toString(),

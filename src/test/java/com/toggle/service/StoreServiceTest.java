@@ -119,6 +119,43 @@ class StoreServiceTest {
     }
 
     @Test
+    void listStoresForAdminShouldReturnActiveStoresInReverseIdOrder() {
+        Store latest = new Store(
+            ExternalSource.KAKAO,
+            "store-admin-2",
+            "두 번째 매장",
+            "02-123-4567",
+            "서울시 테스트구 테스트로 2",
+            "서울시 테스트구 테스트로 2",
+            new BigDecimal("37.1234567"),
+            new BigDecimal("127.1234567")
+        );
+        ReflectionTestUtils.setField(latest, "id", 20L);
+        latest.markVerified("서울시 테스트구 테스트로 2", "서울시 테스트구 테스트로 2", "카페", "{}", null);
+
+        Store older = new Store(
+            ExternalSource.KAKAO,
+            "store-admin-1",
+            "첫 번째 매장",
+            "02-123-4567",
+            "서울시 테스트구 테스트로 1",
+            "서울시 테스트구 테스트로 1",
+            new BigDecimal("37.1234567"),
+            new BigDecimal("127.1234567")
+        );
+        ReflectionTestUtils.setField(older, "id", 10L);
+        older.markVerified("서울시 테스트구 테스트로 1", "서울시 테스트구 테스트로 1", "음식점", "{}", null);
+
+        when(storeRepository.findAllByDeletedAtIsNullOrderByIdDesc()).thenReturn(List.of(latest, older));
+        when(favoriteRepository.countByStoreId(anyLong())).thenReturn(0L);
+
+        StoreLookupResponse response = storeService.listStoresForAdmin();
+
+        assertThat(response.stores()).extracting(StoreLookupItemResponse::storeId).containsExactly(20L, 10L);
+        assertThat(response.stores()).extracting(StoreLookupItemResponse::categoryName).containsExactly("카페", "음식점");
+    }
+
+    @Test
     void getRegisteredStoreShouldReturnVerifiedStore() {
         Store store = new Store(
             ExternalSource.KAKAO,
