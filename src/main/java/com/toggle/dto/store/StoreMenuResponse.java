@@ -8,6 +8,11 @@ public record StoreMenuResponse(
     String categoryName,
     boolean enabled,
     boolean editable,
-    List<StoreMenuItemResponse> items
+    List<StoreMenuItemResponse> items,
+    String operationalState,
+    String closureRequestStatus,
+    boolean menuEligible,
+    boolean menuEditable,
+    String menuEligibilityReason
 ) {
 }

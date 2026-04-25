@@ -78,6 +78,7 @@ public class OwnerApplicationService {
     private final AddressNormalizer addressNormalizer;
     private final StoreRepository storeRepository;
     private final StoreService storeService;
+    private final StoreEligibilityService storeEligibilityService;
     private final KakaoPlaceClient kakaoPlaceClient;
     private final NationalTaxServiceClient nationalTaxServiceClient;
     private final ObjectMapper objectMapper;
@@ -92,6 +93,7 @@ public class OwnerApplicationService {
         AddressNormalizer addressNormalizer,
         StoreRepository storeRepository,
         StoreService storeService,
+        StoreEligibilityService storeEligibilityService,
         KakaoPlaceClient kakaoPlaceClient,
         NationalTaxServiceClient nationalTaxServiceClient,
         ObjectMapper objectMapper
@@ -105,6 +107,7 @@ public class OwnerApplicationService {
         this.addressNormalizer = addressNormalizer;
         this.storeRepository = storeRepository;
         this.storeService = storeService;
+        this.storeEligibilityService = storeEligibilityService;
         this.kakaoPlaceClient = kakaoPlaceClient;
         this.nationalTaxServiceClient = nationalTaxServiceClient;
         this.objectMapper = objectMapper;
@@ -958,8 +961,12 @@ public class OwnerApplicationService {
     }
 
     private OwnerLinkedStoreResponse toOwnerLinkedStoreResponse(OwnerStoreLink link) {
+        StoreEligibilityService.StoreEligibilitySnapshot eligibility = storeEligibilityService.describe(link.getStore(), true);
         return new OwnerLinkedStoreResponse(
             link.getId(),
+            link.getOwnerUser().getId(),
+            link.getOwnerUser().getOwnerDisplayName() == null ? link.getOwnerUser().getNickname() : link.getOwnerUser().getOwnerDisplayName(),
+            link.getOwnerUser().getEmail(),
             link.getStore().getId(),
             link.getStore().getName(),
             link.getStore().getAddress(),
@@ -970,7 +977,12 @@ public class OwnerApplicationService {
             link.getStore().getOperatingCloseTime(),
             link.getStore().getBreakStartTime(),
             link.getStore().getBreakEndTime(),
-            deserializeImageUrls(link.getStore().getOwnerImageUrlsJson())
+            deserializeImageUrls(link.getStore().getOwnerImageUrlsJson()),
+            eligibility.operationalState(),
+            eligibility.closureRequestStatus(),
+            eligibility.menuEligible(),
+            eligibility.menuEditable(),
+            eligibility.menuEligibilityReason()
         );
     }
 

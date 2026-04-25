@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
@@ -50,6 +51,9 @@ class StoreServiceTest {
     private OwnerStoreLinkRepository ownerStoreLinkRepository;
 
     @Mock
+    private StoreEligibilityService storeEligibilityService;
+
+    @Mock
     private AddressNormalizer addressNormalizer;
 
     @Mock
@@ -61,6 +65,26 @@ class StoreServiceTest {
     @BeforeEach
     void setUp() {
         lenient().when(addressNormalizer.normalize(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        lenient().when(storeEligibilityService.describe(any(Store.class), anyBoolean())).thenAnswer(invocation -> {
+            Store store = invocation.getArgument(0);
+            boolean ownerLinked = invocation.getArgument(1);
+            boolean menuEligible = supportsMenus(store) && store.isVerified() && !store.isDeleted();
+            boolean menuEditable = menuEligible && ownerLinked;
+            String menuEligibilityReason = !store.isVerified()
+                ? "STORE_NOT_REGISTERED"
+                : store.isDeleted()
+                    ? "STORE_INACTIVE"
+                    : !supportsMenus(store)
+                        ? "MENU_CATEGORY_NOT_SUPPORTED"
+                        : null;
+            return new StoreEligibilityService.StoreEligibilitySnapshot(
+                store.isDeleted() ? "INACTIVE" : "ACTIVE",
+                null,
+                menuEligible,
+                menuEditable,
+                menuEligibilityReason
+            );
+        });
     }
 
     @Test
@@ -89,6 +113,8 @@ class StoreServiceTest {
         assertThat(response.stores().get(0).reviewAverageRating()).isEqualTo(4.7);
         assertThat(response.stores().get(0).reviewCount()).isEqualTo(12L);
         assertThat(response.stores().get(0).favoriteCount()).isEqualTo(34L);
+        assertThat(response.stores().get(0).operationalState()).isEqualTo("ACTIVE");
+        assertThat(response.stores().get(0).menuEligible()).isTrue();
     }
 
     @Test
@@ -153,6 +179,7 @@ class StoreServiceTest {
 
         assertThat(response.stores()).extracting(StoreLookupItemResponse::storeId).containsExactly(20L, 10L);
         assertThat(response.stores()).extracting(StoreLookupItemResponse::categoryName).containsExactly("카페", "음식점");
+        assertThat(response.stores()).extracting(StoreLookupItemResponse::operationalState).containsExactly("ACTIVE", "ACTIVE");
     }
 
     @Test
@@ -257,6 +284,21 @@ class StoreServiceTest {
             assertThat(response.storeId()).isEqualTo(3L);
             assertThat(response.resolved()).isTrue();
         });
+    }
+
+    private boolean supportsMenus(Store store) {
+        String categoryName = store.getCategoryName();
+        if (categoryName == null || categoryName.isBlank()) {
+            return false;
+        }
+
+        String normalized = categoryName.toLowerCase(java.util.Locale.ROOT);
+        return normalized.contains("음식점")
+            || normalized.contains("카페")
+            || normalized.contains("restaurant")
+            || normalized.contains("cafe")
+            || normalized.contains("coffee")
+            || normalized.contains("food");
     }
 
     @Test

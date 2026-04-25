@@ -12,6 +12,9 @@ public interface OwnerStoreLinkRepository extends JpaRepository<OwnerStoreLink, 
     List<OwnerStoreLink> findAllByOwnerUserIdAndStoreDeletedAtIsNull(Long ownerUserId);
 
     @EntityGraph(attributePaths = {"ownerUser", "store"})
+    List<OwnerStoreLink> findAllByStoreDeletedAtIsNull();
+
+    @EntityGraph(attributePaths = {"ownerUser", "store"})
     Optional<OwnerStoreLink> findByOwnerUserIdAndStoreIdAndStoreDeletedAtIsNull(Long ownerUserId, Long storeId);
 
     boolean existsByStoreIdAndStoreDeletedAtIsNull(Long storeId);

@@ -28,6 +28,11 @@ public record StoreLookupItemResponse(
     Double reviewAverageRating,
     long reviewCount,
     long favoriteCount,
-    List<String> imageUrls
+    List<String> imageUrls,
+    String operationalState,
+    String closureRequestStatus,
+    boolean menuEligible,
+    boolean menuEditable,
+    String menuEligibilityReason
 ) {
 }

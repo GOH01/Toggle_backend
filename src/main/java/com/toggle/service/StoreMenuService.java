@@ -13,7 +13,6 @@ import com.toggle.repository.OwnerStoreLinkRepository;
 import com.toggle.repository.StoreMenuRepository;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,26 +21,31 @@ import org.springframework.transaction.annotation.Transactional;
 public class StoreMenuService {
 
     private static final String MENU_NOT_SUPPORTED_CODE = "MENU_NOT_SUPPORTED";
+    private static final String MENU_NOT_EDITABLE_CODE = "MENU_NOT_EDITABLE";
     private static final String MENU_ACCESS_DENIED_CODE = "MENU_ACCESS_DENIED";
 
     private final StoreService storeService;
     private final OwnerStoreLinkRepository ownerStoreLinkRepository;
     private final StoreMenuRepository storeMenuRepository;
+    private final StoreEligibilityService storeEligibilityService;
 
     public StoreMenuService(
         StoreService storeService,
         OwnerStoreLinkRepository ownerStoreLinkRepository,
-        StoreMenuRepository storeMenuRepository
+        StoreMenuRepository storeMenuRepository,
+        StoreEligibilityService storeEligibilityService
     ) {
         this.storeService = storeService;
         this.ownerStoreLinkRepository = ownerStoreLinkRepository;
         this.storeMenuRepository = storeMenuRepository;
+        this.storeEligibilityService = storeEligibilityService;
     }
 
     @Transactional(readOnly = true)
     public StoreMenuResponse getStoreMenus(Long storeId) {
         Store store = storeService.getRegisteredStore(storeId);
-        boolean enabled = supportsMenus(store);
+        StoreEligibilityService.StoreEligibilitySnapshot eligibility = storeEligibilityService.describe(store, false);
+        boolean enabled = eligibility.menuEligible();
         List<StoreMenuItemResponse> items = enabled
             ? storeMenuRepository.findAllByStoreIdOrderByDisplayOrderAscIdAsc(storeId).stream()
                 .map(this::toResponse)
@@ -54,14 +58,20 @@ public class StoreMenuService {
             store.getCategoryName(),
             enabled,
             false,
-            items
+            items,
+            eligibility.operationalState(),
+            eligibility.closureRequestStatus(),
+            eligibility.menuEligible(),
+            eligibility.menuEditable(),
+            eligibility.menuEligibilityReason()
         );
     }
 
     @Transactional(readOnly = true)
     public StoreMenuResponse getMyStoreMenus(Long storeId, User ownerUser) {
         Store store = getOwnedStore(storeId, ownerUser);
-        boolean enabled = supportsMenus(store);
+        StoreEligibilityService.StoreEligibilitySnapshot eligibility = storeEligibilityService.describe(store, true);
+        boolean enabled = eligibility.menuEligible();
         List<StoreMenuItemResponse> items = enabled
             ? storeMenuRepository.findAllByStoreIdOrderByDisplayOrderAscIdAsc(storeId).stream()
                 .map(this::toResponse)
@@ -73,16 +83,25 @@ public class StoreMenuService {
             store.getName(),
             store.getCategoryName(),
             enabled,
-            enabled,
-            items
+            eligibility.menuEditable(),
+            items,
+            eligibility.operationalState(),
+            eligibility.closureRequestStatus(),
+            eligibility.menuEligible(),
+            eligibility.menuEditable(),
+            eligibility.menuEligibilityReason()
         );
     }
 
     @Transactional
     public StoreMenuResponse replaceMyStoreMenus(Long storeId, User ownerUser, StoreMenuUpsertRequest request) {
         Store store = getOwnedStore(storeId, ownerUser);
-        if (!supportsMenus(store)) {
+        StoreEligibilityService.StoreEligibilitySnapshot eligibility = storeEligibilityService.describe(store, true);
+        if (!eligibility.menuEligible()) {
             throw new ApiException(HttpStatus.BAD_REQUEST, MENU_NOT_SUPPORTED_CODE, "음식점/카페에서만 메뉴를 관리할 수 있습니다.");
+        }
+        if (!eligibility.menuEditable()) {
+            throw new ApiException(HttpStatus.CONFLICT, MENU_NOT_EDITABLE_CODE, "운영 종료 요청이 처리 중인 매장은 메뉴를 수정할 수 없습니다.");
         }
 
         List<StoreMenuUpsertItemRequest> menuRequests = request.menus() == null ? List.of() : request.menus();
@@ -115,21 +134,6 @@ public class StoreMenuService {
         return ownerStoreLinkRepository.findByOwnerUserIdAndStoreIdAndStoreDeletedAtIsNull(ownerUser.getId(), storeId)
             .map(link -> link.getStore())
             .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "STORE_NOT_FOUND", "매장을 찾을 수 없습니다."));
-    }
-
-    private boolean supportsMenus(Store store) {
-        String categoryName = store.getCategoryName();
-        if (categoryName == null || categoryName.isBlank()) {
-            return false;
-        }
-
-        String normalized = categoryName.toLowerCase(Locale.ROOT);
-        return normalized.contains("음식점")
-            || normalized.contains("카페")
-            || normalized.contains("restaurant")
-            || normalized.contains("cafe")
-            || normalized.contains("coffee")
-            || normalized.contains("food");
     }
 
     private StoreMenuItemResponse toResponse(StoreMenu menu) {

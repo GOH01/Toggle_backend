@@ -7,8 +7,10 @@ import com.toggle.dto.store.ResolveStoreResponse;
 import com.toggle.dto.store.StoreLookupItemResponse;
 import com.toggle.dto.store.StoreLookupRequest;
 import com.toggle.dto.store.StoreLookupResponse;
+import com.toggle.dto.owner.OwnerLinkedStoreResponse;
 import com.toggle.entity.ExternalSource;
 import com.toggle.entity.LiveStatusSource;
+import com.toggle.entity.OwnerStoreLink;
 import com.toggle.entity.Store;
 import com.toggle.entity.User;
 import com.toggle.entity.UserRole;
@@ -35,6 +37,7 @@ public class StoreService {
     private final StoreRepository storeRepository;
     private final FavoriteRepository favoriteRepository;
     private final OwnerStoreLinkRepository ownerStoreLinkRepository;
+    private final StoreEligibilityService storeEligibilityService;
     private final AddressNormalizer addressNormalizer;
     private final ObjectMapper objectMapper;
 
@@ -42,12 +45,14 @@ public class StoreService {
         StoreRepository storeRepository,
         FavoriteRepository favoriteRepository,
         OwnerStoreLinkRepository ownerStoreLinkRepository,
+        StoreEligibilityService storeEligibilityService,
         AddressNormalizer addressNormalizer,
         ObjectMapper objectMapper
     ) {
         this.storeRepository = storeRepository;
         this.favoriteRepository = favoriteRepository;
         this.ownerStoreLinkRepository = ownerStoreLinkRepository;
+        this.storeEligibilityService = storeEligibilityService;
         this.addressNormalizer = addressNormalizer;
         this.objectMapper = objectMapper;
     }
@@ -114,34 +119,42 @@ public class StoreService {
         List<StoreLookupItemResponse> stores = storeRepository.findAllByExternalSourceAndExternalPlaceIdInAndDeletedAtIsNull(source, externalPlaceIds)
             .stream()
             .filter(Store::isVerified)
-            .map(store -> new StoreLookupItemResponse(
-                store.getId(),
-                store.getExternalSource().name(),
-                store.getExternalPlaceId(),
-                store.getName(),
-                store.getCategoryName(),
-                store.getAddress(),
-                store.getRoadAddress(),
-                store.getJibunAddress(),
-                store.getPhone(),
-                store.getLatitude() == null ? null : store.getLatitude().doubleValue(),
-                store.getLongitude() == null ? null : store.getLongitude().doubleValue(),
-                store.getBusinessStatus().name(),
-                store.getLiveBusinessStatus().name(),
-                store.getLiveStatusSource() == null ? null : store.getLiveStatusSource().name(),
-                store.isVerified(),
-                store.getVerifiedAt() == null ? null : store.getVerifiedAt().toString(),
-                store.getOwnerNotice(),
-                store.getOperatingOpenTime(),
-                store.getOperatingCloseTime(),
-                store.getBreakStartTime(),
-                store.getBreakEndTime(),
-                store.getRating() == null ? null : store.getRating().doubleValue(),
-                store.getReviewAverageRating() == null ? null : store.getReviewAverageRating().doubleValue(),
-                store.getReviewCount(),
-                favoriteRepository.countByStoreId(store.getId()),
-                deserializeImageUrls(store.getOwnerImageUrlsJson())
-            ))
+            .map(store -> {
+                StoreEligibilityService.StoreEligibilitySnapshot eligibility = storeEligibilityService.describe(store, false);
+                return new StoreLookupItemResponse(
+                    store.getId(),
+                    store.getExternalSource().name(),
+                    store.getExternalPlaceId(),
+                    store.getName(),
+                    store.getCategoryName(),
+                    store.getAddress(),
+                    store.getRoadAddress(),
+                    store.getJibunAddress(),
+                    store.getPhone(),
+                    store.getLatitude() == null ? null : store.getLatitude().doubleValue(),
+                    store.getLongitude() == null ? null : store.getLongitude().doubleValue(),
+                    store.getBusinessStatus().name(),
+                    store.getLiveBusinessStatus().name(),
+                    store.getLiveStatusSource() == null ? null : store.getLiveStatusSource().name(),
+                    store.isVerified(),
+                    store.getVerifiedAt() == null ? null : store.getVerifiedAt().toString(),
+                    store.getOwnerNotice(),
+                    store.getOperatingOpenTime(),
+                    store.getOperatingCloseTime(),
+                    store.getBreakStartTime(),
+                    store.getBreakEndTime(),
+                    store.getRating() == null ? null : store.getRating().doubleValue(),
+                    store.getReviewAverageRating() == null ? null : store.getReviewAverageRating().doubleValue(),
+                    store.getReviewCount(),
+                    favoriteRepository.countByStoreId(store.getId()),
+                    deserializeImageUrls(store.getOwnerImageUrlsJson()),
+                    eligibility.operationalState(),
+                    eligibility.closureRequestStatus(),
+                    eligibility.menuEligible(),
+                    eligibility.menuEditable(),
+                    eligibility.menuEligibilityReason()
+                );
+            })
             .toList();
 
         return new StoreLookupResponse(stores);
@@ -245,6 +258,13 @@ public class StoreService {
         return new StoreLookupResponse(stores);
     }
 
+    @Transactional(readOnly = true)
+    public List<OwnerLinkedStoreResponse> listOwnerLinkedStoresForAdmin() {
+        return ownerStoreLinkRepository.findAllByStoreDeletedAtIsNull().stream()
+            .map(this::toOwnerLinkedStoreResponse)
+            .toList();
+    }
+
     @Transactional
     public void updateStoreLiveStatus(Store store, com.toggle.entity.BusinessStatus status, LiveStatusSource source) {
         store.updateLiveBusinessStatus(status, source);
@@ -296,6 +316,7 @@ public class StoreService {
     }
 
     private StoreLookupItemResponse toLookupItem(Store store) {
+        StoreEligibilityService.StoreEligibilitySnapshot eligibility = storeEligibilityService.describe(store, false);
         return new StoreLookupItemResponse(
             store.getId(),
             store.getExternalSource().name(),
@@ -322,7 +343,39 @@ public class StoreService {
             store.getReviewAverageRating() == null ? null : store.getReviewAverageRating().doubleValue(),
             store.getReviewCount(),
             favoriteRepository.countByStoreId(store.getId()),
-            deserializeImageUrls(store.getOwnerImageUrlsJson())
+            deserializeImageUrls(store.getOwnerImageUrlsJson()),
+            eligibility.operationalState(),
+            eligibility.closureRequestStatus(),
+            eligibility.menuEligible(),
+            eligibility.menuEditable(),
+            eligibility.menuEligibilityReason()
+        );
+    }
+
+    private OwnerLinkedStoreResponse toOwnerLinkedStoreResponse(OwnerStoreLink link) {
+        Store store = link.getStore();
+        StoreEligibilityService.StoreEligibilitySnapshot eligibility = storeEligibilityService.describe(store, true);
+        return new OwnerLinkedStoreResponse(
+            link.getId(),
+            link.getOwnerUser().getId(),
+            link.getOwnerUser().getOwnerDisplayName() == null ? link.getOwnerUser().getNickname() : link.getOwnerUser().getOwnerDisplayName(),
+            link.getOwnerUser().getEmail(),
+            store.getId(),
+            store.getName(),
+            store.getAddress(),
+            store.getCategoryName(),
+            store.getLiveBusinessStatus() == null ? null : store.getLiveBusinessStatus().name(),
+            store.getOwnerNotice(),
+            store.getOperatingOpenTime(),
+            store.getOperatingCloseTime(),
+            store.getBreakStartTime(),
+            store.getBreakEndTime(),
+            deserializeImageUrls(store.getOwnerImageUrlsJson()),
+            eligibility.operationalState(),
+            eligibility.closureRequestStatus(),
+            eligibility.menuEligible(),
+            eligibility.menuEditable(),
+            eligibility.menuEligibilityReason()
         );
     }
 

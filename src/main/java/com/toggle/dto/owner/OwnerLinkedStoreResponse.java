@@ -4,6 +4,9 @@ import java.util.List;
 
 public record OwnerLinkedStoreResponse(
     Long linkId,
+    Long ownerUserId,
+    String ownerNickname,
+    String ownerEmail,
     Long storeId,
     String storeName,
     String storeAddress,
@@ -14,6 +17,11 @@ public record OwnerLinkedStoreResponse(
     String closeTime,
     String breakStart,
     String breakEnd,
-    List<String> imageUrls
+    List<String> imageUrls,
+    String operationalState,
+    String closureRequestStatus,
+    boolean menuEligible,
+    boolean menuEditable,
+    String menuEligibilityReason
 ) {
 }
