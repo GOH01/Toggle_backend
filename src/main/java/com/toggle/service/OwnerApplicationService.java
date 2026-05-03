@@ -74,7 +74,7 @@ public class OwnerApplicationService {
     private final BusinessVerificationHistoryRepository businessVerificationHistoryRepository;
     private final MapVerificationHistoryRepository mapVerificationHistoryRepository;
     private final AdminReviewLogRepository adminReviewLogRepository;
-    private final OwnerDocumentStorageService ownerDocumentStorageService;
+    private final S3FileService s3FileService;
     private final AddressNormalizer addressNormalizer;
     private final StoreRepository storeRepository;
     private final StoreService storeService;
@@ -89,7 +89,7 @@ public class OwnerApplicationService {
         BusinessVerificationHistoryRepository businessVerificationHistoryRepository,
         MapVerificationHistoryRepository mapVerificationHistoryRepository,
         AdminReviewLogRepository adminReviewLogRepository,
-        OwnerDocumentStorageService ownerDocumentStorageService,
+        S3FileService s3FileService,
         AddressNormalizer addressNormalizer,
         StoreRepository storeRepository,
         StoreService storeService,
@@ -103,7 +103,7 @@ public class OwnerApplicationService {
         this.businessVerificationHistoryRepository = businessVerificationHistoryRepository;
         this.mapVerificationHistoryRepository = mapVerificationHistoryRepository;
         this.adminReviewLogRepository = adminReviewLogRepository;
-        this.ownerDocumentStorageService = ownerDocumentStorageService;
+        this.s3FileService = s3FileService;
         this.addressNormalizer = addressNormalizer;
         this.storeRepository = storeRepository;
         this.storeService = storeService;
@@ -117,9 +117,9 @@ public class OwnerApplicationService {
     public OwnerApplicationResponse createApplication(User ownerUser, OwnerApplicationRequest request, MultipartFile businessLicenseFile) {
         assertOwner(ownerUser);
 
-        OwnerDocumentStorageService.StoredOwnerDocument storedDocument = ownerDocumentStorageService.store(businessLicenseFile);
         ensureNoActiveDuplicateApplication(ownerUser.getId(), request.businessNumber(), request.businessAddress(), null);
-        OwnerApplication application = buildApplication(ownerUser, request, storedDocument);
+        S3FileService.StoredFile storedFile = s3FileService.uploadFile(businessLicenseFile, "business");
+        OwnerApplication application = buildApplication(ownerUser, request, storedFile.key());
         ownerApplicationRepository.save(application);
         runInitialVerifications(application);
 
@@ -142,15 +142,18 @@ public class OwnerApplicationService {
             throw new ApiException(HttpStatus.CONFLICT, "OWNER_APPLICATION_NOT_EDITABLE", "이미 최종 처리된 신청은 수정할 수 없습니다.");
         }
 
-        OwnerDocumentStorageService.StoredOwnerDocument storedDocument = businessLicenseFile == null
-            ? new OwnerDocumentStorageService.StoredOwnerDocument(
-                application.getBusinessLicenseStoredPath(),
-                application.getBusinessLicenseOriginalName(),
-                application.getBusinessLicenseContentType()
-            )
-            : ownerDocumentStorageService.store(businessLicenseFile);
-
         ensureNoActiveDuplicateApplication(ownerUser.getId(), request.businessNumber(), request.businessAddress(), applicationId);
+
+        String storedKey = application.getBusinessLicenseObjectKey();
+        if (businessLicenseFile != null) {
+            S3FileService.StoredFile storedFile = s3FileService.uploadFile(businessLicenseFile, "business");
+            storedKey = storedFile.key();
+            if (application.getBusinessLicenseObjectKey() != null && !application.getBusinessLicenseObjectKey().isBlank()
+                && !application.getBusinessLicenseObjectKey().equals(storedKey)) {
+                s3FileService.deleteFile(application.getBusinessLicenseObjectKey());
+            }
+        }
+
         String normalizedAddress = request.businessAddress().trim();
         application.updateOwnerDraft(
             request.storeName().trim(),
@@ -160,9 +163,7 @@ public class OwnerApplicationService {
             normalizedAddress,
             addressNormalizer.normalize(normalizedAddress),
             normalizePhone(request.businessPhone()),
-            storedDocument.storedPath(),
-            storedDocument.originalName(),
-            storedDocument.contentType()
+            storedKey
         );
         runInitialVerifications(application);
         return toApplicationResponse(application);
@@ -187,6 +188,7 @@ public class OwnerApplicationService {
         OwnerApplication application = getApplication(applicationId);
         return new OwnerApplicationDetailResponse(
             toSummaryResponse(application),
+            application.isBusinessLicenseDeleted() ? null : s3FileService.createPresignedGetUrl(application.getBusinessLicenseObjectKey()),
             businessVerificationHistoryRepository.findAllByRequestIdOrderByCreatedAtDesc(applicationId).stream()
                 .map(history -> new BusinessVerificationHistoryResponse(
                     history.getVerificationType().name(),
@@ -449,7 +451,7 @@ public class OwnerApplicationService {
     private OwnerApplication buildApplication(
         User ownerUser,
         OwnerApplicationRequest request,
-        OwnerDocumentStorageService.StoredOwnerDocument storedDocument
+        String storedKey
     ) {
         String normalizedAddress = request.businessAddress().trim();
         return new OwnerApplication(
@@ -461,9 +463,7 @@ public class OwnerApplicationService {
             normalizedAddress,
             addressNormalizer.normalize(normalizedAddress),
             normalizePhone(request.businessPhone()),
-            storedDocument.storedPath(),
-            storedDocument.originalName(),
-            storedDocument.contentType()
+            storedKey
         );
     }
 
@@ -934,9 +934,9 @@ public class OwnerApplicationService {
             application.getBusinessOpenDate(),
             application.getBusinessAddressRaw(),
             application.getBusinessPhone(),
-            application.getBusinessLicenseOriginalName(),
-            application.getBusinessLicenseContentType(),
-            application.getBusinessLicenseStoredPath(),
+            application.getBusinessLicenseObjectKey(),
+            application.getDeletedAt(),
+            application.getDeleteReason(),
             application.getReviewStatus().name(),
             application.getBusinessVerificationStatus().name(),
             application.getMapVerificationStatus().name(),

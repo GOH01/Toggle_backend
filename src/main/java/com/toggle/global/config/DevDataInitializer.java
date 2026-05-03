@@ -82,7 +82,7 @@ public class DevDataInitializer {
     ) {
         java.util.List<OwnerApplication> ownerApplications = ownerApplicationRepository.findAllByUserIdOrderByCreatedAtDesc(ownerUser.getId());
         OwnerApplication existingSeedApplication = ownerApplications.stream()
-            .filter(application -> "/dev-seed/pending-owner-application.pdf".equals(application.getBusinessLicenseStoredPath()))
+            .filter(application -> "/dev-seed/pending-owner-application.pdf".equals(application.getBusinessLicenseObjectKey()))
             .findFirst()
             .orElse(null);
 
@@ -107,9 +107,7 @@ public class DevDataInitializer {
             "서울특별시 강남구 선릉로 551",
             addressNormalizer.normalize("서울특별시 강남구 선릉로 551"),
             "02-555-1234",
-            "/dev-seed/pending-owner-application.pdf",
-            "pending-owner-application.pdf",
-            "application/pdf"
+            "/dev-seed/pending-owner-application.pdf"
         );
         application.markAutoVerificationUnavailable();
         application.markMapVerificationFailed();

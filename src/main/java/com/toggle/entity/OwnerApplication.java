@@ -48,13 +48,7 @@ public class OwnerApplication extends BaseTimeEntity {
     private String businessPhone;
 
     @Column(nullable = false)
-    private String businessLicenseStoredPath;
-
-    @Column(nullable = false)
-    private String businessLicenseOriginalName;
-
-    @Column(nullable = false)
-    private String businessLicenseContentType;
+    private String businessLicenseObjectKey;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
@@ -78,6 +72,11 @@ public class OwnerApplication extends BaseTimeEntity {
 
     private LocalDateTime reviewedAt;
 
+    private LocalDateTime deletedAt;
+
+    @Column(length = 500)
+    private String deleteReason;
+
     @Column(length = 500)
     private String rejectReason;
 
@@ -93,9 +92,7 @@ public class OwnerApplication extends BaseTimeEntity {
         String businessAddressRaw,
         String businessAddressNormalized,
         String businessPhone,
-        String businessLicenseStoredPath,
-        String businessLicenseOriginalName,
-        String businessLicenseContentType
+        String businessLicenseObjectKey
     ) {
         this.user = user;
         this.storeName = storeName;
@@ -105,9 +102,7 @@ public class OwnerApplication extends BaseTimeEntity {
         this.businessAddressRaw = businessAddressRaw;
         this.businessAddressNormalized = businessAddressNormalized;
         this.businessPhone = businessPhone;
-        this.businessLicenseStoredPath = businessLicenseStoredPath;
-        this.businessLicenseOriginalName = businessLicenseOriginalName;
-        this.businessLicenseContentType = businessLicenseContentType;
+        this.businessLicenseObjectKey = businessLicenseObjectKey;
         this.reviewStatus = OwnerApplicationReviewStatus.PENDING;
         this.businessVerificationStatus = BusinessVerificationStatus.NOT_STARTED;
         this.mapVerificationStatus = MapVerificationStatus.NOT_STARTED;
@@ -149,16 +144,8 @@ public class OwnerApplication extends BaseTimeEntity {
         return businessPhone;
     }
 
-    public String getBusinessLicenseStoredPath() {
-        return businessLicenseStoredPath;
-    }
-
-    public String getBusinessLicenseOriginalName() {
-        return businessLicenseOriginalName;
-    }
-
-    public String getBusinessLicenseContentType() {
-        return businessLicenseContentType;
+    public String getBusinessLicenseObjectKey() {
+        return businessLicenseObjectKey;
     }
 
     public OwnerApplicationReviewStatus getReviewStatus() {
@@ -185,6 +172,14 @@ public class OwnerApplication extends BaseTimeEntity {
         return reviewedAt;
     }
 
+    public LocalDateTime getDeletedAt() {
+        return deletedAt;
+    }
+
+    public String getDeleteReason() {
+        return deleteReason;
+    }
+
     public String getRejectReason() {
         return rejectReason;
     }
@@ -197,9 +192,7 @@ public class OwnerApplication extends BaseTimeEntity {
         String businessAddressRaw,
         String businessAddressNormalized,
         String businessPhone,
-        String businessLicenseStoredPath,
-        String businessLicenseOriginalName,
-        String businessLicenseContentType
+        String businessLicenseObjectKey
     ) {
         this.storeName = storeName;
         this.businessNumber = businessNumber;
@@ -208,9 +201,7 @@ public class OwnerApplication extends BaseTimeEntity {
         this.businessAddressRaw = businessAddressRaw;
         this.businessAddressNormalized = businessAddressNormalized;
         this.businessPhone = businessPhone;
-        this.businessLicenseStoredPath = businessLicenseStoredPath;
-        this.businessLicenseOriginalName = businessLicenseOriginalName;
-        this.businessLicenseContentType = businessLicenseContentType;
+        this.businessLicenseObjectKey = businessLicenseObjectKey;
         resetVerification();
     }
 
@@ -286,6 +277,11 @@ public class OwnerApplication extends BaseTimeEntity {
         this.rejectReason = rejectReason;
     }
 
+    public void markBusinessLicenseDeleted(LocalDateTime deletedAt, String deleteReason) {
+        this.deletedAt = deletedAt;
+        this.deleteReason = deleteReason;
+    }
+
     public boolean isApprovalReady() {
         boolean businessVerified = this.businessVerificationStatus == BusinessVerificationStatus.AUTO_VERIFIED
             || this.businessVerificationStatus == BusinessVerificationStatus.MANUAL_VERIFIED;
@@ -294,6 +290,10 @@ public class OwnerApplication extends BaseTimeEntity {
 
     public boolean isEditableByOwner() {
         return this.reviewStatus == OwnerApplicationReviewStatus.PENDING || this.reviewStatus == OwnerApplicationReviewStatus.UNDER_REVIEW;
+    }
+
+    public boolean isBusinessLicenseDeleted() {
+        return this.deletedAt != null;
     }
 
     private void resetVerification() {

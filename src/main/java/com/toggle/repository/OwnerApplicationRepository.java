@@ -2,6 +2,7 @@ package com.toggle.repository;
 
 import com.toggle.entity.OwnerApplication;
 import com.toggle.entity.OwnerApplicationReviewStatus;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.EntityGraph;
@@ -17,6 +18,9 @@ public interface OwnerApplicationRepository extends JpaRepository<OwnerApplicati
 
     @EntityGraph(attributePaths = "user")
     Optional<OwnerApplication> findById(Long id);
+
+    @EntityGraph(attributePaths = "user")
+    List<OwnerApplication> findAllByReviewedAtIsNotNullAndDeletedAtIsNullAndReviewedAtBefore(LocalDateTime reviewedAtBefore);
 
     boolean existsByUserIdAndBusinessNumberAndBusinessAddressNormalizedAndReviewStatusIn(
         Long userId,

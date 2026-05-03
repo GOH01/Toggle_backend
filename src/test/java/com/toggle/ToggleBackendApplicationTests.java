@@ -1,7 +1,9 @@
 package com.toggle;
 
 import static org.hamcrest.Matchers.startsWith;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
@@ -47,6 +49,7 @@ import com.toggle.repository.StoreRepository;
 import com.toggle.repository.StoreReviewRepository;
 import com.toggle.repository.UserRepository;
 import com.toggle.service.KakaoPlaceClient;
+import com.toggle.service.S3FileService;
 import com.toggle.service.NationalTaxServiceClient;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -118,6 +121,9 @@ class ToggleBackendApplicationTests {
     @MockBean
     private NationalTaxServiceClient nationalTaxServiceClient;
 
+    @MockBean
+    private S3FileService s3FileService;
+
     @BeforeEach
     void setUp() {
         favoriteRepository.deleteAll();
@@ -134,6 +140,9 @@ class ToggleBackendApplicationTests {
         given(kakaoPlaceClient.searchByKeyword(anyString())).willReturn(java.util.List.of());
         given(nationalTaxServiceClient.verifyBusiness(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString()))
             .willReturn(new NationalTaxVerificationResult(false, "{}", "{}", null, null, null, null, "NTS_VERIFICATION_FAILED", "국세청 진위확인 결과가 일치하지 않습니다."));
+        given(s3FileService.uploadFile(any(), eq("business")))
+            .willReturn(new S3FileService.StoredFile("https://sku-toggle.s3.ap-northeast-2.amazonaws.com/business/dev-seed.pdf", "business/dev-seed.pdf"));
+        given(s3FileService.createPresignedGetUrl(anyString())).willReturn("https://presigned.example/business-license");
     }
 
     @Test

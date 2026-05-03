@@ -1,3 +1,9 @@
+jwt:
+  issuer: toggle
+  secret: change-me-in-local-dev-change-me-in-local-dev
+  access-token-expiration-seconds: 3600
+  refresh-token-expiration-seconds: 1209600
+
 spring:
   servlet:
     multipart:
@@ -10,31 +16,25 @@ spring:
     driver-class-name: org.h2.Driver
   jpa:
     hibernate:
-      ddl-auto: create-drop
+      ddl-auto: update
     open-in-view: false
-  sql:
-    init:
-      mode: never
-
-jwt:
-  issuer: toggle-test
-  secret: test-secret-key-for-jwt-signing-1234567890
-  access-token-expiration-seconds: 3600
-  refresh-token-expiration-seconds: 1209600
+  h2:
+    console:
+      enabled: false
 
 cloud:
   aws:
     credentials:
-      access-key: test-access-key
-      secret-key: test-secret-key
+      access-key: change-me-in-local-dev
+      secret-key: change-me-in-local-dev
     region: ap-northeast-2
     s3:
-      bucket: sku-toggle-test
+      bucket: toggle-local-bucket
 
 app:
   national-tax:
-    service-key: test-national-tax-service-key
+    service-key:
     base-url: https://api.odcloud.kr/api/nts-businessman/v1
   kakao:
-    api-key: test-kakao-api-key
+    api-key: change-me-in-local-dev
     base-url: https://dapi.kakao.com
