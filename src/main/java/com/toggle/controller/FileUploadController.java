@@ -3,8 +3,13 @@ package com.toggle.controller;
 import com.toggle.dto.file.FileUploadResponse;
 import com.toggle.global.response.ApiResponse;
 import com.toggle.service.S3FileService;
+import java.net.URI;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
@@ -38,6 +43,13 @@ public class FileUploadController {
     @PostMapping(value = "/store", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ApiResponse<FileUploadResponse> uploadStoreFile(@RequestPart("file") MultipartFile file) {
         return ApiResponse.ok(toResponse(s3FileService.uploadFile(file, "store")));
+    }
+
+    @GetMapping("/view")
+    public ResponseEntity<Void> viewFile(@RequestParam("key") String key) {
+        return ResponseEntity.status(HttpStatus.FOUND)
+            .location(URI.create(s3FileService.createPresignedGetUrl(key)))
+            .build();
     }
 
     private FileUploadResponse toResponse(S3FileService.StoredFile storedFile) {

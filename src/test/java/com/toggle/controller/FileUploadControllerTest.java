@@ -5,8 +5,10 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.toggle.global.config.S3Properties;
@@ -91,5 +93,15 @@ class FileUploadControllerTest {
 
         mockMvc.perform(multipart("/api/v1/files/menu").file(file).with(user("user@toggle.com").roles("USER")))
             .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void viewRouteShouldRedirectToFreshPresignedUrl() throws Exception {
+        when(s3FileService.createPresignedGetUrl("review/test.png"))
+            .thenReturn("https://presigned.example/review/test.png");
+
+        mockMvc.perform(get("/api/v1/files/view").param("key", "review/test.png"))
+            .andExpect(status().isFound())
+            .andExpect(redirectedUrl("https://presigned.example/review/test.png"));
     }
 }

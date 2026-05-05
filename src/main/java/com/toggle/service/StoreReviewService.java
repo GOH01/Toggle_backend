@@ -1,5 +1,7 @@
 package com.toggle.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.toggle.dto.review.StoreReviewCreateRequest;
 import com.toggle.dto.review.StoreReviewItemResponse;
 import com.toggle.dto.review.StoreReviewMineResponse;
@@ -14,6 +16,10 @@ import com.toggle.repository.StoreRepository;
 import com.toggle.repository.StoreReviewRepository;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.net.URI;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -33,11 +39,13 @@ public class StoreReviewService {
     private static final String SORT_RATING_DESC = "rating_desc";
     private static final String SORT_RATING_ASC = "rating_asc";
     private static final int MAX_CONTENT_LENGTH = 2000;
+    private static final int MAX_IMAGE_COUNT = 5;
 
     private final StoreReviewRepository storeReviewRepository;
     private final StoreRepository storeRepository;
     private final StoreService storeService;
     private final AuthService authService;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     public StoreReviewService(
         StoreReviewRepository storeReviewRepository,
@@ -55,11 +63,12 @@ public class StoreReviewService {
     public StoreReviewItemResponse createReview(Long storeId, StoreReviewCreateRequest request) {
         int rating = validateRating(request.rating());
         String content = normalizeContent(request.content());
+        String imageUrlsJson = serializeImageUrls(request.imageUrls());
 
         User user = authService.getAuthenticatedUser();
         Store store = lockStore(storeId);
 
-        StoreReview review = storeReviewRepository.save(new StoreReview(user, store, rating, content));
+        StoreReview review = storeReviewRepository.save(new StoreReview(user, store, rating, content, imageUrlsJson));
         refreshStoreReviewSummary(store);
         return toItemResponse(review);
     }
@@ -74,7 +83,11 @@ public class StoreReviewService {
         ensureOwnedByCurrentUser(review, user);
         Store store = lockStore(review.getStore().getId());
 
-        review.updateReview(rating, content);
+        String imageUrlsJson = request.imageUrls() == null
+            ? review.getImageUrlsJson()
+            : serializeImageUrls(request.imageUrls());
+
+        review.updateReview(rating, content, imageUrlsJson);
         storeReviewRepository.save(review);
         refreshStoreReviewSummary(store);
         return toItemResponse(review);
@@ -231,6 +244,7 @@ public class StoreReviewService {
             resolveAuthorNickname(review.getUser()),
             review.getRating(),
             review.getContent(),
+            deserializeImageUrls(review.getImageUrlsJson()),
             review.getCreatedAt(),
             review.getUpdatedAt()
         );
@@ -260,5 +274,85 @@ public class StoreReviewService {
 
         int atIndex = email.indexOf('@');
         return atIndex > 0 ? email.substring(0, atIndex) : email;
+    }
+
+    private String serializeImageUrls(List<String> imageUrls) {
+        List<String> normalized = normalizeImageUrls(imageUrls);
+        try {
+            return objectMapper.writeValueAsString(normalized);
+        } catch (JsonProcessingException ex) {
+            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "REVIEW_IMAGE_SERIALIZATION_FAILED", "리뷰 이미지를 저장하지 못했습니다.");
+        }
+    }
+
+    private List<String> deserializeImageUrls(String imageUrlsJson) {
+        if (imageUrlsJson == null || imageUrlsJson.isBlank()) {
+            return List.of();
+        }
+
+        try {
+            List<String> parsed = objectMapper.readValue(
+                imageUrlsJson,
+                objectMapper.getTypeFactory().constructCollectionType(List.class, String.class)
+            );
+            return normalizeImageUrls(parsed).stream()
+                .map(this::resolveReviewImageUrl)
+                .toList();
+        } catch (JsonProcessingException ex) {
+            return List.of();
+        }
+    }
+
+    private List<String> normalizeImageUrls(List<String> imageUrls) {
+        if (imageUrls == null || imageUrls.isEmpty()) {
+            return List.of();
+        }
+
+        List<String> normalized = new ArrayList<>();
+        for (String imageUrl : imageUrls) {
+            if (imageUrl == null) {
+                continue;
+            }
+
+            String trimmed = imageUrl.trim();
+            if (trimmed.isBlank()) {
+                continue;
+            }
+
+            normalized.add(trimmed);
+            if (normalized.size() > MAX_IMAGE_COUNT) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_REVIEW_IMAGE_COUNT", "리뷰 이미지는 최대 5장까지 등록할 수 있습니다.");
+            }
+        }
+
+        return List.copyOf(normalized);
+    }
+
+    private String resolveReviewImageUrl(String storedValue) {
+        if (storedValue == null || storedValue.isBlank()) {
+            return null;
+        }
+
+        String trimmed = storedValue.trim();
+        if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+            try {
+                URI uri = URI.create(trimmed);
+                String host = uri.getHost();
+                String path = uri.getPath();
+                if (host != null && host.contains("amazonaws.com") && path != null && !path.isBlank()) {
+                    return buildStableFileUrl(path.startsWith("/") ? path.substring(1) : path);
+                }
+            } catch (IllegalArgumentException ex) {
+                return trimmed;
+            }
+
+            return trimmed;
+        }
+
+        return buildStableFileUrl(trimmed);
+    }
+
+    private String buildStableFileUrl(String key) {
+        return "/api/v1/files/view?key=" + URLEncoder.encode(key, StandardCharsets.UTF_8);
     }
 }

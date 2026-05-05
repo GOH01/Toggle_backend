@@ -105,8 +105,8 @@ class StoreReviewServiceTest {
 
     @Test
     void createReviewShouldAllowMultipleReviewsFromSameUserAndStoreAndRefreshSummary() {
-        storeReviewService.createReview(store.getId(), new StoreReviewCreateRequest(5, "첫 번째 리뷰"));
-        storeReviewService.createReview(store.getId(), new StoreReviewCreateRequest(4, "두 번째 리뷰"));
+        storeReviewService.createReview(store.getId(), new StoreReviewCreateRequest(5, "첫 번째 리뷰", List.of("https://cdn.example.com/review/1.png")));
+        storeReviewService.createReview(store.getId(), new StoreReviewCreateRequest(4, "두 번째 리뷰", List.of("https://cdn.example.com/review/2.png")));
 
         ArgumentCaptor<StoreReview> reviewCaptor = ArgumentCaptor.forClass(StoreReview.class);
         verify(storeReviewRepository, atLeastOnce()).save(reviewCaptor.capture());
@@ -119,8 +119,32 @@ class StoreReviewServiceTest {
         assertThat(reviewCaptor.getAllValues())
             .extracting(StoreReview::getContent)
             .containsExactly("첫 번째 리뷰", "두 번째 리뷰");
+        assertThat(reviewCaptor.getAllValues())
+            .extracting(StoreReview::getImageUrlsJson)
+            .containsExactly("[\"https://cdn.example.com/review/1.png\"]", "[\"https://cdn.example.com/review/2.png\"]");
 
         assertLatestSavedStoreSummary("4.5", 2L);
+    }
+
+    @Test
+    void createReviewShouldPersistAndReturnUploadedImageUrls() {
+        StoreReviewItemResponse response = storeReviewService.createReview(
+            store.getId(),
+            new StoreReviewCreateRequest(
+                5,
+                "사진이 포함된 리뷰",
+                List.of(
+                    "https://toggle-bucket.s3.ap-northeast-2.amazonaws.com/review/1.png",
+                    "https://toggle-bucket.s3.ap-northeast-2.amazonaws.com/review/2.png"
+                )
+            )
+        );
+
+        assertThat(response.imageUrls())
+            .containsExactly(
+                "/api/v1/files/view?key=review%2F1.png",
+                "/api/v1/files/view?key=review%2F2.png"
+            );
     }
 
     @Test
@@ -132,7 +156,7 @@ class StoreReviewServiceTest {
             "등록된 매장이 아닙니다."
         ));
 
-        assertThatThrownBy(() -> storeReviewService.createReview(previewStore.getId(), new StoreReviewCreateRequest(5, "미등록 매장 리뷰")))
+        assertThatThrownBy(() -> storeReviewService.createReview(previewStore.getId(), new StoreReviewCreateRequest(5, "미등록 매장 리뷰", List.of())))
             .isInstanceOf(ApiException.class)
             .satisfies(throwable -> {
                 ApiException ex = (ApiException) throwable;
@@ -219,7 +243,11 @@ class StoreReviewServiceTest {
         StoreReview firstReview = seedReview(author, 5, "첫 번째 리뷰");
         StoreReview secondReview = seedReview(author, 1, "수정 대상 리뷰");
 
-        storeReviewService.updateReview(secondReview.getId(), new StoreReviewUpdateRequest(3, "수정된 리뷰"));
+        storeReviewService.updateReview(secondReview.getId(), new StoreReviewUpdateRequest(
+            3,
+            "수정된 리뷰",
+            List.of("https://cdn.example.com/review/updated.png")
+        ));
 
         assertLatestSavedStoreSummary("4.0", 2L);
 
@@ -228,7 +256,7 @@ class StoreReviewServiceTest {
         ReflectionTestUtils.setField(otherOwnersReview, "id", firstReview.getId());
         lenient().when(storeReviewRepository.findById(firstReview.getId())).thenReturn(Optional.of(otherOwnersReview));
 
-        assertThatThrownBy(() -> storeReviewService.updateReview(firstReview.getId(), new StoreReviewUpdateRequest(2, "시도")))
+        assertThatThrownBy(() -> storeReviewService.updateReview(firstReview.getId(), new StoreReviewUpdateRequest(2, "시도", List.of())))
             .isInstanceOf(ApiException.class)
             .satisfies(throwable -> {
                 ApiException ex = (ApiException) throwable;
@@ -238,7 +266,7 @@ class StoreReviewServiceTest {
 
         lenient().when(storeReviewRepository.findById(9999L)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> storeReviewService.updateReview(9999L, new StoreReviewUpdateRequest(2, "없는 리뷰")))
+        assertThatThrownBy(() -> storeReviewService.updateReview(9999L, new StoreReviewUpdateRequest(2, "없는 리뷰", List.of())))
             .isInstanceOf(ApiException.class)
             .satisfies(throwable -> {
                 ApiException ex = (ApiException) throwable;
@@ -282,7 +310,7 @@ class StoreReviewServiceTest {
 
     @Test
     void createReviewShouldRejectInvalidRatingAndBlankContent() {
-        assertThatThrownBy(() -> storeReviewService.createReview(store.getId(), new StoreReviewCreateRequest(0, "유효하지 않은 평점")))
+        assertThatThrownBy(() -> storeReviewService.createReview(store.getId(), new StoreReviewCreateRequest(0, "유효하지 않은 평점", List.of())))
             .isInstanceOf(ApiException.class)
             .satisfies(throwable -> {
                 ApiException ex = (ApiException) throwable;
@@ -290,7 +318,7 @@ class StoreReviewServiceTest {
                 assertThat(ex.getCode()).isEqualTo("INVALID_REVIEW_RATING");
             });
 
-        assertThatThrownBy(() -> storeReviewService.createReview(store.getId(), new StoreReviewCreateRequest(4, "   ")))
+        assertThatThrownBy(() -> storeReviewService.createReview(store.getId(), new StoreReviewCreateRequest(4, "   ", List.of())))
             .isInstanceOf(ApiException.class)
             .satisfies(throwable -> {
                 ApiException ex = (ApiException) throwable;

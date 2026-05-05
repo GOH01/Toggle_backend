@@ -1,13 +1,22 @@
 package com.toggle.service;
 
+import com.toggle.dto.kakao.KakaoCategorySearchRequest;
+import com.toggle.dto.kakao.KakaoKeywordSearchRequest;
 import com.toggle.dto.kakao.KakaoKeywordSearchResponse;
+import com.toggle.dto.kakao.KakaoNearbySearchRequest;
+import com.toggle.dto.kakao.KakaoPlaceSearchResponse;
+import com.toggle.global.exception.ApiException;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
+import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
@@ -25,19 +34,120 @@ public class KakaoPlaceClient {
             return List.of();
         }
 
-        String uri = UriComponentsBuilder.fromPath("/v2/local/search/keyword.json")
-            .queryParam("query", query.trim())
-            .build()
-            .toUriString();
-
-        ResponseEntity<KakaoKeywordSearchResponse> response = kakaoRestTemplate.exchange(
-            uri,
-            HttpMethod.GET,
-            null,
-            new ParameterizedTypeReference<>() {}
+        KakaoKeywordSearchResponse body = exchange(
+            "/v2/local/search/keyword.json",
+            Map.of("query", query.trim()),
+            KakaoKeywordSearchResponse.class
         );
 
-        KakaoKeywordSearchResponse body = response.getBody();
         return body == null || body.documents() == null ? List.of() : body.documents();
+    }
+
+    public KakaoPlaceSearchResponse searchKeyword(KakaoKeywordSearchRequest request) {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("query", request.query().trim());
+        params.put("category_group_code", normalizeOptional(request.categoryGroupCode()));
+        params.put("x", request.longitude());
+        params.put("y", request.latitude());
+        params.put("radius", request.radiusMeters());
+        params.put("page", request.page());
+        params.put("size", request.size());
+        params.put("sort", normalizeOptional(request.sort()));
+
+        return normalizeSearchResponse(exchange(
+            "/v2/local/search/keyword.json",
+            params,
+            KakaoPlaceSearchResponse.class
+        ));
+    }
+
+    public KakaoPlaceSearchResponse searchCategory(KakaoCategorySearchRequest request) {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("category_group_code", request.categoryGroupCode().trim());
+        params.put("x", request.longitude());
+        params.put("y", request.latitude());
+        params.put("radius", request.radiusMeters());
+        params.put("page", request.page());
+        params.put("size", request.size());
+        params.put("sort", normalizeOptional(request.sort()));
+
+        return normalizeSearchResponse(exchange(
+            "/v2/local/search/category.json",
+            params,
+            KakaoPlaceSearchResponse.class
+        ));
+    }
+
+    public KakaoPlaceSearchResponse searchNearby(KakaoNearbySearchRequest request) {
+        return searchCategory(new KakaoCategorySearchRequest(
+            request.categoryGroupCode(),
+            request.latitude(),
+            request.longitude(),
+            request.radiusMeters(),
+            request.page(),
+            request.size(),
+            request.sort()
+        ));
+    }
+
+    private <T> T exchange(String path, Map<String, Object> queryParams, Class<T> responseType) {
+        try {
+            String url = buildUrl(path, queryParams);
+            ResponseEntity<T> response = kakaoRestTemplate.exchange(
+                url,
+                HttpMethod.GET,
+                HttpEntity.EMPTY,
+                responseType
+            );
+            return response.getBody();
+        } catch (HttpStatusCodeException ex) {
+            throw mapException(ex);
+        } catch (ApiException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "KAKAO_LOCAL_API_ERROR", "카카오 장소 검색 API 호출에 실패했습니다.");
+        }
+    }
+
+    private String buildUrl(String path, Map<String, Object> queryParams) {
+        UriComponentsBuilder builder = UriComponentsBuilder.fromPath(path);
+        queryParams.forEach((key, value) -> {
+            if (value == null) {
+                return;
+            }
+            if (value instanceof String stringValue && !StringUtils.hasText(stringValue)) {
+                return;
+            }
+            builder.queryParam(key, value);
+        });
+        return builder.build().encode().toUriString();
+    }
+
+    private KakaoPlaceSearchResponse normalizeSearchResponse(KakaoPlaceSearchResponse body) {
+        if (body != null) {
+            return body;
+        }
+
+        return new KakaoPlaceSearchResponse(
+            new KakaoPlaceSearchResponse.KakaoPlaceSearchMeta(0, 0, true, null),
+            List.of()
+        );
+    }
+
+    private ApiException mapException(HttpStatusCodeException ex) {
+        int statusCode = ex.getStatusCode().value();
+        if (statusCode == 429) {
+            return new ApiException(HttpStatus.TOO_MANY_REQUESTS, "KAKAO_LOCAL_RATE_LIMITED", "카카오 장소 검색 요청이 너무 많습니다.");
+        }
+
+        if (ex.getStatusCode().is4xxClientError()) {
+            return new ApiException(HttpStatus.BAD_REQUEST, "KAKAO_LOCAL_BAD_REQUEST", "카카오 장소 검색 요청이 올바르지 않습니다.");
+        }
+
+        return new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "KAKAO_LOCAL_API_ERROR", "카카오 장소 검색 API가 일시적으로 응답하지 않습니다.");
+    }
+
+    private String normalizeOptional(String value) {
+        return StringUtils.hasText(value) ? value.trim() : null;
     }
 }

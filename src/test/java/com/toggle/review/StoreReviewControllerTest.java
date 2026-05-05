@@ -93,12 +93,12 @@ class StoreReviewControllerTest {
     void writeRoutesShouldRequireAuthentication() throws Exception {
         mockMvc.perform(post("/api/v1/stores/{storeId}/reviews", 1L)
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(new StoreReviewCreateRequest(5, "좋아요."))))
+                .content(objectMapper.writeValueAsString(new StoreReviewCreateRequest(5, "좋아요.", List.of()))))
             .andExpect(status().isUnauthorized());
 
         mockMvc.perform(patch("/api/v1/reviews/{reviewId}", 1L)
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(new StoreReviewUpdateRequest(4, "수정"))))
+                .content(objectMapper.writeValueAsString(new StoreReviewUpdateRequest(4, "수정", List.of()))))
             .andExpect(status().isUnauthorized());
 
         mockMvc.perform(delete("/api/v1/reviews/{reviewId}", 1L))
@@ -115,6 +115,7 @@ class StoreReviewControllerTest {
                 "tester",
                 5,
                 "좋아요.",
+                List.of("https://cdn.example.com/review/1.png"),
                 LocalDateTime.now(),
                 LocalDateTime.now()
             ));
@@ -122,8 +123,9 @@ class StoreReviewControllerTest {
         mockMvc.perform(post("/api/v1/stores/{storeId}/reviews", 1L)
                 .with(user("tester"))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(new StoreReviewCreateRequest(5, "좋아요."))))
+                .content(objectMapper.writeValueAsString(new StoreReviewCreateRequest(5, "좋아요.", List.of("https://cdn.example.com/review/1.png")))))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.reviewId").value(1L));
+            .andExpect(jsonPath("$.data.reviewId").value(1L))
+            .andExpect(jsonPath("$.data.imageUrls[0]").value("https://cdn.example.com/review/1.png"));
     }
 }

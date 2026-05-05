@@ -40,14 +40,22 @@ public class StoreReview extends BaseTimeEntity {
     @Column(nullable = false, columnDefinition = "TEXT")
     private String content;
 
+    @Column(columnDefinition = "TEXT")
+    private String imageUrlsJson;
+
     protected StoreReview() {
     }
 
     public StoreReview(User user, Store store, int rating, String content) {
+        this(user, store, rating, content, null);
+    }
+
+    public StoreReview(User user, Store store, int rating, String content, String imageUrlsJson) {
         this.user = user;
         this.store = store;
         this.rating = rating;
         this.content = content;
+        this.imageUrlsJson = imageUrlsJson;
     }
 
     public Long getId() {
@@ -70,8 +78,18 @@ public class StoreReview extends BaseTimeEntity {
         return content;
     }
 
+    public String getImageUrlsJson() {
+        return imageUrlsJson;
+    }
+
     public void updateReview(int rating, String content) {
         this.rating = rating;
         this.content = content;
+    }
+
+    public void updateReview(int rating, String content, String imageUrlsJson) {
+        this.rating = rating;
+        this.content = content;
+        this.imageUrlsJson = imageUrlsJson;
     }
 }

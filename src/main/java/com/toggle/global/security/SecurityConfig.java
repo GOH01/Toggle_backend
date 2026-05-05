@@ -58,6 +58,7 @@ public class SecurityConfig {
             ).permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/files/business", "/api/v1/files/menu", "/api/v1/files/store").hasRole("OWNER")
                 .requestMatchers(HttpMethod.POST, "/api/v1/files/review").hasAnyRole("USER", "OWNER")
+                .requestMatchers(HttpMethod.GET, "/api/v1/files/view").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/v1/public-maps/search").authenticated()
                 .requestMatchers(HttpMethod.GET, "/api/v1/public-maps/*").permitAll()
                 .requestMatchers(
