@@ -9,22 +9,30 @@ import org.junit.jupiter.api.Test;
 class ImageUrlMapperTest {
 
     @Test
+    void toObjectKeyShouldNormalizeBrowserViewUrlAndS3Url() {
+        assertThat(ImageUrlMapper.toObjectKey("/api/v1/files/view?key=store%2Fhero%20image.png"))
+            .isEqualTo("store/hero image.png");
+        assertThat(ImageUrlMapper.toObjectKey("https://sku-toggle.s3.ap-northeast-2.amazonaws.com/store/hero%20image.png"))
+            .isEqualTo("store/hero image.png");
+        assertThat(ImageUrlMapper.toObjectKey("store/hero image.png"))
+            .isEqualTo("store/hero image.png");
+    }
+
+    @Test
     void toBrowserUrlShouldConvertS3UrlToFileViewPath() {
         assertThat(ImageUrlMapper.toBrowserUrl("https://sku-toggle.s3.ap-northeast-2.amazonaws.com/review/test.png"))
             .isEqualTo("/api/v1/files/view?key=review%2Ftest.png");
     }
 
     @Test
-    void toBrowserUrlShouldKeepExistingViewPathAndAbsoluteUrls() {
-        assertThat(ImageUrlMapper.toBrowserUrl("/api/v1/files/view?key=review%2Ftest.png"))
-            .isEqualTo("/api/v1/files/view?key=review%2Ftest.png");
-        assertThat(ImageUrlMapper.toBrowserUrl("https://cdn.example.com/image.png"))
-            .isEqualTo("https://cdn.example.com/image.png");
+    void toObjectKeysShouldDropBlankValues() {
+        assertThat(ImageUrlMapper.toObjectKeys(Arrays.asList(" ", null, "/api/v1/files/view?key=review%2F1.png")))
+            .containsExactly("review/1.png");
     }
 
     @Test
-    void toBrowserUrlsShouldFilterBlankValues() {
-        assertThat(ImageUrlMapper.toBrowserUrls(Arrays.asList("  ", null, "https://sku-toggle.s3.ap-northeast-2.amazonaws.com/store/1.png")))
-            .containsExactly("/api/v1/files/view?key=store%2F1.png");
+    void toBrowserUrlShouldConvertCanonicalObjectKeysToViewPaths() {
+        assertThat(ImageUrlMapper.toBrowserUrl("store/hero image.png"))
+            .isEqualTo("/api/v1/files/view?key=store%2Fhero+image.png");
     }
 }

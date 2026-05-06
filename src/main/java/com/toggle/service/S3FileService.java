@@ -4,19 +4,23 @@ import com.toggle.global.config.S3Properties;
 import com.toggle.global.exception.ApiException;
 import com.toggle.global.util.ImageUrlMapper;
 import java.io.IOException;
-import java.io.InputStream;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import jakarta.annotation.Nullable;
 import org.springframework.http.HttpStatus;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -48,6 +52,7 @@ public class S3FileService {
     private final S3Client s3Client;
     private final S3Presigner s3Presigner;
     private final S3Properties properties;
+    private final Set<String> pendingDeleteKeys = ConcurrentHashMap.newKeySet();
 
     public S3FileService(S3Client s3Client, S3Presigner s3Presigner, S3Properties properties) {
         this.s3Client = s3Client;
@@ -63,14 +68,14 @@ public class S3FileService {
         String key = policy.dir() + "/" + UUID.randomUUID() + "-" + safeFilename;
         String contentType = normalizeContentType(file.getContentType());
 
-        try (InputStream inputStream = file.getInputStream()) {
+        try {
             s3Client.putObject(
                 PutObjectRequest.builder()
                     .bucket(bucket())
                     .key(key)
                     .contentType(contentType)
                     .build(),
-                RequestBody.fromInputStream(inputStream, file.getSize())
+                RequestBody.fromBytes(file.getBytes())
             );
         } catch (IOException ex) {
             throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "FILE_STORAGE_FAILED", "파일 저장에 실패했습니다.");
@@ -85,10 +90,47 @@ public class S3FileService {
             return;
         }
 
-        s3Client.deleteObject(DeleteObjectRequest.builder()
-            .bucket(bucket())
-            .key(normalizedKey)
-            .build());
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    deleteOrQueue(normalizedKey);
+                }
+            });
+            return;
+        }
+
+        deleteOrQueue(normalizedKey);
+    }
+
+    public void deleteFilesAfterCommit(List<String> keys) {
+        if (keys == null || keys.isEmpty()) {
+            return;
+        }
+
+        List<String> normalizedKeys = keys.stream()
+            .map(this::normalizeKey)
+            .filter(value -> !value.isBlank())
+            .collect(Collectors.toList());
+
+        if (normalizedKeys.isEmpty()) {
+            return;
+        }
+
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            List<String> committedKeys = normalizedKeys.stream()
+                .distinct()
+                .toList();
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    committedKeys.forEach(S3FileService.this::deleteOrQueue);
+                }
+            });
+            return;
+        }
+
+        normalizedKeys.stream().distinct().forEach(this::deleteOrQueue);
     }
 
     public String createPresignedGetUrl(String key) {
@@ -166,7 +208,21 @@ public class S3FileService {
     }
 
     private String normalizeKey(@Nullable String key) {
-        return key == null ? "" : key.trim();
+        String normalized = key == null ? "" : key.trim();
+        if (normalized.isBlank()) {
+            return "";
+        }
+
+        String objectKey = ImageUrlMapper.toObjectKey(normalized);
+        if (objectKey != null && !objectKey.isBlank()) {
+            return objectKey;
+        }
+
+        if (normalized.startsWith("http://") || normalized.startsWith("https://")) {
+            return "";
+        }
+
+        return normalized.startsWith("/") ? normalized.substring(1) : normalized;
     }
 
     private String normalizeDir(@Nullable String dir) {
@@ -183,6 +239,27 @@ public class S3FileService {
 
     private String region() {
         return properties.region().trim();
+    }
+
+    private void deleteOrQueue(String normalizedKey) {
+        try {
+            s3Client.deleteObject(DeleteObjectRequest.builder()
+                .bucket(bucket())
+                .key(normalizedKey)
+                .build());
+            pendingDeleteKeys.remove(normalizedKey);
+        } catch (RuntimeException ex) {
+            pendingDeleteKeys.add(normalizedKey);
+        }
+    }
+
+    @Scheduled(fixedDelay = 60_000)
+    public void retryPendingDeletes() {
+        for (String pendingKey : pendingDeleteKeys.toArray(new String[0])) {
+            if (pendingDeleteKeys.remove(pendingKey)) {
+                deleteOrQueue(pendingKey);
+            }
+        }
     }
 
     private record UploadPolicy(

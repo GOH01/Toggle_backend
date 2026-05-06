@@ -437,15 +437,29 @@ public class OwnerApplicationService {
         validateTimeField(request.breakEnd(), "브레이크 종료 시간");
 
         Store store = link.getStore();
+        List<String> previousImageObjectKeys = deserializeImageObjectKeys(
+            store.getOwnerImageObjectKeysJson() == null || store.getOwnerImageObjectKeysJson().isBlank()
+                ? store.getOwnerImageUrlsJson()
+                : store.getOwnerImageObjectKeysJson()
+        );
+        List<String> nextImageUrls = normalizeImageUrls(request.imageUrls());
+        List<String> nextImageObjectKeys = normalizeImageObjectKeys(request.imageUrls());
+
         store.updateOwnerProfile(
             blankToNull(request.ownerNotice()),
             blankToNull(request.openTime()),
             blankToNull(request.closeTime()),
             blankToNull(request.breakStart()),
             blankToNull(request.breakEnd()),
-            serializeImageUrls(request.imageUrls()),
+            safeJson(nextImageUrls),
+            safeJson(nextImageObjectKeys),
             null
         );
+
+        List<String> removedImageObjectKeys = previousImageObjectKeys.stream()
+            .filter(previousKey -> !nextImageObjectKeys.contains(previousKey))
+            .toList();
+        s3FileService.deleteFilesAfterCommit(removedImageObjectKeys);
 
         return toOwnerLinkedStoreResponse(link);
     }
@@ -1017,13 +1031,12 @@ public class OwnerApplicationService {
         }
     }
 
-    private String serializeImageUrls(List<String> imageUrls) {
-        List<String> sanitized = imageUrls == null ? List.of() : imageUrls.stream()
-            .filter(value -> value != null && !value.isBlank())
-            .map(String::trim)
-            .limit(10)
-            .toList();
-        return safeJson(sanitized);
+    private List<String> normalizeImageUrls(List<String> imageUrls) {
+        return ImageUrlMapper.toBrowserUrls(limitImageUrls(imageUrls));
+    }
+
+    private List<String> normalizeImageObjectKeys(List<String> imageUrls) {
+        return ImageUrlMapper.toObjectKeys(limitImageUrls(imageUrls));
     }
 
     private List<String> deserializeImageUrls(String rawJson) {
@@ -1045,6 +1058,35 @@ public class OwnerApplicationService {
         } catch (JsonProcessingException ex) {
             return List.of();
         }
+    }
+
+    private List<String> deserializeImageObjectKeys(String rawJson) {
+        if (rawJson == null || rawJson.isBlank()) {
+            return List.of();
+        }
+
+        try {
+            List<String> parsed = objectMapper.readValue(
+                rawJson,
+                new TypeReference<List<String>>() {
+                }
+            );
+
+            return parsed.stream()
+                .map(ImageUrlMapper::toObjectKey)
+                .filter(value -> value != null && !value.isBlank())
+                .toList();
+        } catch (JsonProcessingException ex) {
+            return List.of();
+        }
+    }
+
+    private List<String> limitImageUrls(List<String> imageUrls) {
+        return imageUrls == null ? List.of() : imageUrls.stream()
+            .filter(value -> value != null && !value.isBlank())
+            .map(String::trim)
+            .limit(10)
+            .toList();
     }
 
     private record Candidate(

@@ -116,6 +116,9 @@ public class Store extends BaseTimeEntity {
     @Column(columnDefinition = "TEXT")
     private String ownerImageUrlsJson;
 
+    @Column(columnDefinition = "TEXT")
+    private String ownerImageObjectKeysJson;
+
     @Column(precision = 2, scale = 1)
     private BigDecimal rating;
 
@@ -284,6 +287,10 @@ public class Store extends BaseTimeEntity {
         return ownerImageUrlsJson;
     }
 
+    public String getOwnerImageObjectKeysJson() {
+        return ownerImageObjectKeysJson;
+    }
+
     public void syncResolvedPlace(
         String name,
         String phone,
@@ -328,6 +335,7 @@ public class Store extends BaseTimeEntity {
         String breakStartTime,
         String breakEndTime,
         String ownerImageUrlsJson,
+        String ownerImageObjectKeysJson,
         BigDecimal rating
     ) {
         this.ownerNotice = ownerNotice;
@@ -336,6 +344,7 @@ public class Store extends BaseTimeEntity {
         this.breakStartTime = breakStartTime;
         this.breakEndTime = breakEndTime;
         this.ownerImageUrlsJson = ownerImageUrlsJson;
+        this.ownerImageObjectKeysJson = ownerImageObjectKeysJson;
         this.rating = rating;
     }
 

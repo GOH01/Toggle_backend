@@ -5,9 +5,11 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
 
 import com.toggle.dto.owner.OwnerApplicationRequest;
 import com.toggle.dto.owner.OwnerApplicationUpdateRequest;
+import com.toggle.dto.owner.OwnerStoreProfileUpdateRequest;
 import com.toggle.dto.owner.NationalTaxVerificationResult;
 import com.toggle.entity.ExternalSource;
 import com.toggle.entity.OwnerApplication;
@@ -248,5 +250,64 @@ class OwnerApplicationServiceTest {
             .singleElement()
             .satisfies(linked -> assertThat(linked.imageUrls())
                 .containsExactly("/api/v1/files/view?key=store%2Fowner-photo.png"));
+    }
+
+    @Test
+    void updateOwnerStoreProfileShouldCleanupRemovedBackendOwnedImagesAfterCommit() {
+        User owner = userRepository.save(new User(
+            "owner4@toggle.com",
+            passwordEncoder.encode("password123!"),
+            "owner4",
+            UserRole.OWNER,
+            UserStatus.ACTIVE
+        ));
+
+        Store store = new Store(
+            ExternalSource.KAKAO,
+            "store-owner-2",
+            "연결 매장 2",
+            "02-111-2222",
+            "서울특별시 강남구 테헤란로 123",
+            "서울특별시 강남구 테헤란로 123",
+            new BigDecimal("37.1234567"),
+            new BigDecimal("127.1234567")
+        );
+        ReflectionTestUtils.setField(store, "ownerImageUrlsJson", "[\"https://sku-toggle.s3.ap-northeast-2.amazonaws.com/store/keep.png\",\"https://sku-toggle.s3.ap-northeast-2.amazonaws.com/store/remove.png\"]");
+        store = storeRepository.save(store);
+
+        OwnerApplication application = ownerApplicationRepository.save(new OwnerApplication(
+            owner,
+            "owner-shop",
+            "1234567890",
+            "홍길동",
+            LocalDate.of(2021, 3, 15),
+            "서울특별시 강남구 테헤란로 123",
+            "서울특별시 강남구 테헤란로 123",
+            "02-1234-5678",
+            "business/license.pdf"
+        ));
+
+        ownerStoreLinkRepository.save(new OwnerStoreLink(
+            owner,
+            store,
+            application,
+            OwnerStoreMatchStatus.AUTO_MATCHED,
+            100,
+            "테스트 연결"
+        ));
+
+        OwnerStoreProfileUpdateRequest request = new OwnerStoreProfileUpdateRequest(
+            "공지",
+            "09:00",
+            "18:00",
+            null,
+            null,
+            List.of("https://sku-toggle.s3.ap-northeast-2.amazonaws.com/store/keep.png")
+        );
+
+        ownerApplicationService.updateOwnerStoreProfile(owner, store.getId(), request);
+
+        verify(s3FileService, never()).deleteFile("store/remove.png");
+        verify(s3FileService).deleteFilesAfterCommit(List.of("store/remove.png"));
     }
 }

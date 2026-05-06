@@ -25,6 +25,7 @@ import com.toggle.global.exception.ApiException;
 import com.toggle.repository.StoreRepository;
 import com.toggle.repository.StoreReviewRepository;
 import com.toggle.service.AuthService;
+import com.toggle.service.S3FileService;
 import com.toggle.service.StoreService;
 import com.toggle.service.StoreReviewService;
 import java.math.BigDecimal;
@@ -46,6 +47,8 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @ExtendWith(MockitoExtension.class)
 class StoreReviewServiceTest {
@@ -61,6 +64,9 @@ class StoreReviewServiceTest {
 
     @Mock
     private AuthService authService;
+
+    @Mock
+    private S3FileService s3FileService;
 
     @InjectMocks
     private StoreReviewService storeReviewService;
@@ -144,6 +150,34 @@ class StoreReviewServiceTest {
             .containsExactly(
                 "/api/v1/files/view?key=review%2F1.png",
                 "/api/v1/files/view?key=review%2F2.png"
+            );
+    }
+
+    @Test
+    void createReviewShouldPersistCanonicalKeysAndKeepExternalUrls() {
+        StoreReviewItemResponse response = storeReviewService.createReview(
+            store.getId(),
+            new StoreReviewCreateRequest(
+                5,
+                "사진이 포함된 리뷰",
+                List.of(
+                    "https://sku-toggle.s3.ap-northeast-2.amazonaws.com/review/1.png",
+                    "https://cdn.example.com/review/external.png"
+                )
+            )
+        );
+
+        ArgumentCaptor<StoreReview> reviewCaptor = ArgumentCaptor.forClass(StoreReview.class);
+        verify(storeReviewRepository).save(reviewCaptor.capture());
+
+        assertThat(reviewCaptor.getValue().getImageUrlsJson())
+            .isEqualTo("[\"https://sku-toggle.s3.ap-northeast-2.amazonaws.com/review/1.png\",\"https://cdn.example.com/review/external.png\"]");
+        assertThat(reviewCaptor.getValue().getImageKeysJson())
+            .isEqualTo("[\"review/1.png\"]");
+        assertThat(response.imageUrls())
+            .containsExactly(
+                "/api/v1/files/view?key=review%2F1.png",
+                "https://cdn.example.com/review/external.png"
             );
     }
 
@@ -276,6 +310,40 @@ class StoreReviewServiceTest {
     }
 
     @Test
+    void updateReviewShouldPersistCanonicalKeysAndCleanupRemovedBackendOwnedImagesAfterCommit() {
+        StoreReview review = seedReview(author, 4, "수정 대상 리뷰");
+        ReflectionTestUtils.setField(review, "imageUrlsJson", "[\"https://sku-toggle.s3.ap-northeast-2.amazonaws.com/review/old.png\",\"https://cdn.example.com/review/external.png\"]");
+        ReflectionTestUtils.setField(review, "imageKeysJson", "[\"review/old.png\"]");
+
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            storeReviewService.updateReview(review.getId(), new StoreReviewUpdateRequest(
+                5,
+                "수정된 리뷰",
+                List.of(
+                    "https://cdn.example.com/review/external.png",
+                    "https://sku-toggle.s3.ap-northeast-2.amazonaws.com/review/new.png"
+                )
+            ));
+
+            verify(s3FileService, never()).deleteFile("review/old.png");
+
+            for (TransactionSynchronization synchronization : TransactionSynchronizationManager.getSynchronizations()) {
+                synchronization.afterCommit();
+            }
+
+            verify(s3FileService).deleteFile("review/old.png");
+
+            ArgumentCaptor<StoreReview> reviewCaptor = ArgumentCaptor.forClass(StoreReview.class);
+            verify(storeReviewRepository).save(reviewCaptor.capture());
+            assertThat(reviewCaptor.getValue().getImageKeysJson())
+                .isEqualTo("[\"review/new.png\"]");
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
+
+    @Test
     void deleteReviewShouldRefreshSummaryAndRejectNonOwnerWith403AndMissingWith404() {
         StoreReview firstReview = seedReview(author, 5, "첫 번째 리뷰");
         StoreReview secondReview = seedReview(author, 3, "삭제 대상 리뷰");
@@ -306,6 +374,28 @@ class StoreReviewServiceTest {
                 assertThat(ex.getStatus()).isEqualTo(HttpStatus.NOT_FOUND);
                 assertThat(ex.getCode()).isEqualTo("REVIEW_NOT_FOUND");
             });
+    }
+
+    @Test
+    void deleteReviewShouldCleanupBackendOwnedImagesAfterCommit() {
+        StoreReview review = seedReview(author, 4, "삭제 대상 리뷰");
+        ReflectionTestUtils.setField(review, "imageUrlsJson", "[\"https://sku-toggle.s3.ap-northeast-2.amazonaws.com/review/delete-me.png\",\"https://cdn.example.com/review/external.png\"]");
+        ReflectionTestUtils.setField(review, "imageKeysJson", "[\"review/delete-me.png\"]");
+
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            storeReviewService.deleteReview(review.getId());
+
+            verify(s3FileService, never()).deleteFile("review/delete-me.png");
+
+            for (TransactionSynchronization synchronization : TransactionSynchronizationManager.getSynchronizations()) {
+                synchronization.afterCommit();
+            }
+
+            verify(s3FileService).deleteFile("review/delete-me.png");
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
     }
 
     @Test

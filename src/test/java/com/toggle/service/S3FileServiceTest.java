@@ -4,10 +4,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.when;
 
 import com.toggle.global.config.S3Properties;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -22,6 +26,8 @@ import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @ExtendWith(MockitoExtension.class)
 class S3FileServiceTest {
@@ -107,5 +113,30 @@ class S3FileServiceTest {
         service.deleteFile("business/sample-key");
 
         verify(s3Client).deleteObject(any(DeleteObjectRequest.class));
+    }
+
+    @Test
+    void deleteFilesAfterCommitShouldDeleteOnlyNormalizedKeys() {
+        when(s3Client.deleteObject(any(DeleteObjectRequest.class))).thenReturn(DeleteObjectResponse.builder().build());
+
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            service.deleteFilesAfterCommit(Arrays.asList(" store/one.png ", null, "", "store/two.png", "store/one.png"));
+
+            verifyNoInteractions(s3Client);
+            assertThat(TransactionSynchronizationManager.getSynchronizations()).hasSize(1);
+
+            for (TransactionSynchronization synchronization : TransactionSynchronizationManager.getSynchronizations()) {
+                synchronization.afterCommit();
+            }
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+
+        ArgumentCaptor<DeleteObjectRequest> requestCaptor = ArgumentCaptor.forClass(DeleteObjectRequest.class);
+        verify(s3Client, times(2)).deleteObject(requestCaptor.capture());
+        assertThat(requestCaptor.getAllValues())
+            .extracting(DeleteObjectRequest::key)
+            .containsExactlyInAnyOrder("store/one.png", "store/two.png");
     }
 }
