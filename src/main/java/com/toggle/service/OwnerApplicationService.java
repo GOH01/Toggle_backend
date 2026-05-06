@@ -1,6 +1,7 @@
 package com.toggle.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.toggle.dto.kakao.KakaoKeywordSearchResponse;
 import com.toggle.dto.owner.BusinessVerificationHistoryResponse;
@@ -42,6 +43,7 @@ import com.toggle.entity.User;
 import com.toggle.entity.UserRole;
 import com.toggle.entity.VerificationRecordStatus;
 import com.toggle.global.exception.ApiException;
+import com.toggle.global.util.ImageUrlMapper;
 import com.toggle.repository.AdminReviewLogRepository;
 import com.toggle.repository.BusinessVerificationHistoryRepository;
 import com.toggle.repository.MapVerificationHistoryRepository;
@@ -1030,10 +1032,16 @@ public class OwnerApplicationService {
         }
 
         try {
-            return objectMapper.readValue(
+            List<String> parsed = objectMapper.readValue(
                 rawJson,
-                objectMapper.getTypeFactory().constructCollectionType(List.class, String.class)
+                new TypeReference<List<String>>() {
+                }
             );
+
+            return parsed.stream()
+                .map(ImageUrlMapper::toBrowserUrl)
+                .filter(value -> value != null && !value.isBlank())
+                .toList();
         } catch (JsonProcessingException ex) {
             return List.of();
         }

@@ -12,13 +12,11 @@ import com.toggle.entity.Store;
 import com.toggle.entity.StoreReview;
 import com.toggle.entity.User;
 import com.toggle.global.exception.ApiException;
+import com.toggle.global.util.ImageUrlMapper;
 import com.toggle.repository.StoreRepository;
 import com.toggle.repository.StoreReviewRepository;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.net.URI;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import org.springframework.data.domain.Page;
@@ -295,9 +293,7 @@ public class StoreReviewService {
                 imageUrlsJson,
                 objectMapper.getTypeFactory().constructCollectionType(List.class, String.class)
             );
-            return normalizeImageUrls(parsed).stream()
-                .map(this::resolveReviewImageUrl)
-                .toList();
+            return ImageUrlMapper.toBrowserUrls(normalizeImageUrls(parsed));
         } catch (JsonProcessingException ex) {
             return List.of();
         }
@@ -328,31 +324,4 @@ public class StoreReviewService {
         return List.copyOf(normalized);
     }
 
-    private String resolveReviewImageUrl(String storedValue) {
-        if (storedValue == null || storedValue.isBlank()) {
-            return null;
-        }
-
-        String trimmed = storedValue.trim();
-        if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
-            try {
-                URI uri = URI.create(trimmed);
-                String host = uri.getHost();
-                String path = uri.getPath();
-                if (host != null && host.contains("amazonaws.com") && path != null && !path.isBlank()) {
-                    return buildStableFileUrl(path.startsWith("/") ? path.substring(1) : path);
-                }
-            } catch (IllegalArgumentException ex) {
-                return trimmed;
-            }
-
-            return trimmed;
-        }
-
-        return buildStableFileUrl(trimmed);
-    }
-
-    private String buildStableFileUrl(String key) {
-        return "/api/v1/files/view?key=" + URLEncoder.encode(key, StandardCharsets.UTF_8);
-    }
 }

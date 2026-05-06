@@ -5,12 +5,14 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.toggle.dto.store.ResolveStoreRequest;
 import com.toggle.dto.store.StoreLookupItemResponse;
 import com.toggle.dto.store.StoreLookupResponse;
@@ -88,7 +90,7 @@ class StoreServiceTest {
     }
 
     @Test
-    void getStoresByIdsShouldExposeReviewAverageAndCount() {
+    void getStoresByIdsShouldExposeReviewAverageAndCount() throws Exception {
         Store store = new Store(
             ExternalSource.KAKAO,
             "store-average-1",
@@ -103,9 +105,16 @@ class StoreServiceTest {
         store.markVerified("서울시 테스트구 테스트로 1", "서울시 테스트구 테스트로 1", "카페", "{}", null);
         store.updateLiveBusinessStatus(BusinessStatus.OPEN, LiveStatusSource.SYSTEM);
         store.updateReviewSummary(new BigDecimal("4.7"), 12L);
+        ReflectionTestUtils.setField(
+            store,
+            "ownerImageUrlsJson",
+            "[\"https://sku-toggle.s3.ap-northeast-2.amazonaws.com/store/store-photo-1.png\",\"  \"]"
+        );
 
         when(storeRepository.findAllByIdInAndDeletedAtIsNull(anyList())).thenReturn(List.of(store));
         when(favoriteRepository.countByStoreId(1L)).thenReturn(34L);
+        lenient().when(objectMapper.readValue(anyString(), org.mockito.ArgumentMatchers.<TypeReference<List<String>>>any()))
+            .thenReturn(List.of("https://sku-toggle.s3.ap-northeast-2.amazonaws.com/store/store-photo-1.png", "  "));
 
         StoreLookupResponse response = storeService.getStoresByIds(List.of(1L));
 
@@ -113,6 +122,8 @@ class StoreServiceTest {
         assertThat(response.stores().get(0).reviewAverageRating()).isEqualTo(4.7);
         assertThat(response.stores().get(0).reviewCount()).isEqualTo(12L);
         assertThat(response.stores().get(0).favoriteCount()).isEqualTo(34L);
+        assertThat(response.stores().get(0).imageUrls())
+            .containsExactly("/api/v1/files/view?key=store%2Fstore-photo-1.png");
         assertThat(response.stores().get(0).operationalState()).isEqualTo("ACTIVE");
         assertThat(response.stores().get(0).menuEligible()).isTrue();
     }
@@ -180,6 +191,7 @@ class StoreServiceTest {
         assertThat(response.stores()).extracting(StoreLookupItemResponse::storeId).containsExactly(20L, 10L);
         assertThat(response.stores()).extracting(StoreLookupItemResponse::categoryName).containsExactly("카페", "음식점");
         assertThat(response.stores()).extracting(StoreLookupItemResponse::operationalState).containsExactly("ACTIVE", "ACTIVE");
+        assertThat(response.stores()).allSatisfy(storeResponse -> assertThat(storeResponse.imageUrls()).isEmpty());
     }
 
     @Test

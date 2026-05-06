@@ -2,6 +2,7 @@ package com.toggle.service;
 
 import com.toggle.global.config.S3Properties;
 import com.toggle.global.exception.ApiException;
+import com.toggle.global.util.ImageUrlMapper;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URLEncoder;
@@ -75,7 +76,7 @@ public class S3FileService {
             throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "FILE_STORAGE_FAILED", "파일 저장에 실패했습니다.");
         }
 
-        return new StoredFile(buildObjectUrl(key), key);
+        return new StoredFile(ImageUrlMapper.toBrowserUrl(buildObjectUrl(key)), key);
     }
 
     public void deleteFile(String key) {

@@ -66,7 +66,7 @@ class S3FileServiceTest {
         assertThat(requestCaptor.getValue().key()).contains("-business_card.png");
         assertThat(requestCaptor.getValue().contentType()).isEqualTo("image/png");
         assertThat(result.key()).startsWith("store/");
-        assertThat(result.url()).startsWith("https://sku-toggle.s3.ap-northeast-2.amazonaws.com/store/");
+        assertThat(result.url()).startsWith("/api/v1/files/view?key=store%2F");
     }
 
     @Test

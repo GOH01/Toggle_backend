@@ -1,6 +1,7 @@
 package com.toggle.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.toggle.dto.favorite.FavoriteStoreListItemResponse;
 import com.toggle.dto.favorite.FavoriteStoreListResponse;
@@ -11,6 +12,7 @@ import com.toggle.entity.PublicInstitution;
 import com.toggle.entity.Store;
 import com.toggle.entity.User;
 import com.toggle.global.exception.ApiException;
+import com.toggle.global.util.ImageUrlMapper;
 import com.toggle.repository.FavoriteRepository;
 import com.toggle.repository.PublicFavoriteRepository;
 import java.util.List;
@@ -143,10 +145,16 @@ public class FavoriteService {
         }
 
         try {
-            return objectMapper.readValue(
+            List<String> parsed = objectMapper.readValue(
                 rawJson,
-                objectMapper.getTypeFactory().constructCollectionType(List.class, String.class)
+                new TypeReference<List<String>>() {
+                }
             );
+
+            return parsed.stream()
+                .map(ImageUrlMapper::toBrowserUrl)
+                .filter(value -> value != null && !value.isBlank())
+                .toList();
         } catch (JsonProcessingException ex) {
             return List.of();
         }

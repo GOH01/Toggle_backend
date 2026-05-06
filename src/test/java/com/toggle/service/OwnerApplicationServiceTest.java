@@ -9,7 +9,12 @@ import static org.mockito.BDDMockito.given;
 import com.toggle.dto.owner.OwnerApplicationRequest;
 import com.toggle.dto.owner.OwnerApplicationUpdateRequest;
 import com.toggle.dto.owner.NationalTaxVerificationResult;
+import com.toggle.entity.ExternalSource;
 import com.toggle.entity.OwnerApplication;
+import com.toggle.entity.OwnerApplicationReviewStatus;
+import com.toggle.entity.OwnerStoreLink;
+import com.toggle.entity.OwnerStoreMatchStatus;
+import com.toggle.entity.Store;
 import com.toggle.entity.User;
 import com.toggle.entity.UserRole;
 import com.toggle.entity.UserStatus;
@@ -21,6 +26,7 @@ import com.toggle.repository.BusinessVerificationHistoryRepository;
 import com.toggle.repository.AdminReviewLogRepository;
 import com.toggle.repository.UserRepository;
 import java.nio.charset.StandardCharsets;
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -32,6 +38,7 @@ import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.util.ReflectionTestUtils;
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -191,5 +198,55 @@ class OwnerApplicationServiceTest {
         OwnerApplication updated = ownerApplicationRepository.findById(stored.getId()).orElseThrow();
         assertThat(updated.getBusinessLicenseObjectKey()).isEqualTo("business/second.pdf");
         verify(s3FileService).deleteFile("business/first.pdf");
+    }
+
+    @Test
+    void listLinkedStoresShouldExposeBrowserAccessibleImageUrls() {
+        User owner = userRepository.save(new User(
+            "owner3@toggle.com",
+            passwordEncoder.encode("password123!"),
+            "owner3",
+            UserRole.OWNER,
+            UserStatus.ACTIVE
+        ));
+
+        OwnerApplication application = ownerApplicationRepository.save(new OwnerApplication(
+            owner,
+            "owner-shop",
+            "1234567890",
+            "홍길동",
+            LocalDate.of(2021, 3, 15),
+            "서울특별시 강남구 테헤란로 123",
+            "서울특별시 강남구 테헤란로 123",
+            "02-1234-5678",
+            "business/license.pdf"
+        ));
+
+        Store store = new Store(
+            ExternalSource.KAKAO,
+            "store-owner-1",
+            "연결 매장",
+            "02-111-2222",
+            "서울특별시 강남구 테헤란로 123",
+            "서울특별시 강남구 테헤란로 123",
+            new BigDecimal("37.1234567"),
+            new BigDecimal("127.1234567")
+        );
+        ReflectionTestUtils.setField(store, "ownerImageUrlsJson", "[\"https://sku-toggle.s3.ap-northeast-2.amazonaws.com/store/owner-photo.png\"]");
+        store = storeRepository.save(store);
+
+        ownerStoreLinkRepository.save(new OwnerStoreLink(
+            owner,
+            store,
+            application,
+            OwnerStoreMatchStatus.AUTO_MATCHED,
+            100,
+            "테스트 연결"
+        ));
+
+        assertThat(ownerApplicationService.listLinkedStores(owner.getId()))
+            .singleElement()
+            .satisfies(linked -> assertThat(linked.imageUrls())
+                .containsExactly("/api/v1/files/view?key=store%2Fowner-photo.png"));
     }
 }

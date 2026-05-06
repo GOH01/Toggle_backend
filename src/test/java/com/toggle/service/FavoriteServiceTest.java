@@ -2,9 +2,12 @@ package com.toggle.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.lenient;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.toggle.dto.favorite.FavoriteStoreListResponse;
 import com.toggle.entity.ExternalSource;
@@ -50,7 +53,7 @@ class FavoriteServiceTest {
     private ObjectMapper objectMapper;
 
     @Test
-    void getFavoriteStoresShouldExposeFavoriteCountForEachStore() {
+    void getFavoriteStoresShouldExposeFavoriteCountForEachStore() throws Exception {
         FavoriteService favoriteService = new FavoriteService(
             favoriteRepository,
             publicFavoriteRepository,
@@ -75,6 +78,11 @@ class FavoriteServiceTest {
         );
         ReflectionTestUtils.setField(store, "id", 101L);
         store.markVerified("서울시 테스트구 테스트로 1", "서울시 테스트구 테스트로 1", "카페", "{}", null);
+        ReflectionTestUtils.setField(
+            store,
+            "ownerImageUrlsJson",
+            "[\"https://sku-toggle.s3.ap-northeast-2.amazonaws.com/store/favorite-photo.png\"]"
+        );
 
         Favorite favorite = new Favorite(user, store);
         ReflectionTestUtils.setField(favorite, "id", 11L);
@@ -83,16 +91,20 @@ class FavoriteServiceTest {
         when(authService.getAuthenticatedUser()).thenReturn(user);
         when(favoriteRepository.findAllByUserIdAndStoreDeletedAtIsNullOrderByCreatedAtDesc(1L)).thenReturn(List.of(favorite));
         when(favoriteRepository.countByStoreId(101L)).thenReturn(27L);
+        lenient().when(objectMapper.readValue(anyString(), org.mockito.ArgumentMatchers.<TypeReference<List<String>>>any()))
+            .thenReturn(List.of("https://sku-toggle.s3.ap-northeast-2.amazonaws.com/store/favorite-photo.png"));
 
         FavoriteStoreListResponse response = favoriteService.getFavoriteStores();
 
         assertThat(response.content()).hasSize(1);
         assertThat(response.content().get(0).storeId()).isEqualTo(101L);
         assertThat(response.content().get(0).favoriteCount()).isEqualTo(27L);
+        assertThat(response.content().get(0).imageUrls())
+            .containsExactly("/api/v1/files/view?key=store%2Ffavorite-photo.png");
     }
 
     @Test
-    void getFavoriteStoresShouldSkipSoftDeletedStores() {
+    void getFavoriteStoresShouldSkipSoftDeletedStores() throws Exception {
         FavoriteService favoriteService = new FavoriteService(
             favoriteRepository,
             publicFavoriteRepository,

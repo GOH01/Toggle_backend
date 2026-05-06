@@ -1180,7 +1180,7 @@ class ToggleBackendApplicationTests {
             .andExpect(jsonPath("$.data.storeId").value(storeId))
             .andExpect(jsonPath("$.data.ownerNotice").value("재료 소진 시 조기 마감될 수 있어요."))
             .andExpect(jsonPath("$.data.openTime").value("10:00"))
-            .andExpect(jsonPath("$.data.imageUrls[0]").value("data:image/png;base64,abc123"));
+            .andExpect(jsonPath("$.data.imageUrls[0]").value("/api/v1/files/view?key=data%3Aimage%2Fpng%3Bbase64%2Cabc123"));
 
         mockMvc.perform(get("/api/v1/owner/stores")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + ownerToken))
@@ -1202,7 +1202,7 @@ class ToggleBackendApplicationTests {
             .andExpect(jsonPath("$.data.stores[0].ownerNotice").value("재료 소진 시 조기 마감될 수 있어요."))
             .andExpect(jsonPath("$.data.stores[0].openTime").value("10:00"))
             .andExpect(jsonPath("$.data.stores[0].breakEnd").value("16:00"))
-            .andExpect(jsonPath("$.data.stores[0].imageUrls[0]").value("data:image/png;base64,abc123"));
+            .andExpect(jsonPath("$.data.stores[0].imageUrls[0]").value("/api/v1/files/view?key=data%3Aimage%2Fpng%3Bbase64%2Cabc123"));
     }
 
     @Test

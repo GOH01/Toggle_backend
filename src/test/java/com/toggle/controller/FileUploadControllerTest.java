@@ -37,7 +37,7 @@ class FileUploadControllerTest {
     @Test
     void ownerCanUploadBusinessFile() throws Exception {
         when(s3FileService.uploadFile(any(), eq("business")))
-            .thenReturn(new S3FileService.StoredFile("https://sku-toggle.s3.ap-northeast-2.amazonaws.com/business/test.pdf", "business/test.pdf"));
+            .thenReturn(new S3FileService.StoredFile("/api/v1/files/view?key=business%2Ftest.pdf", "business/test.pdf"));
 
         MockMultipartFile file = new MockMultipartFile(
             "file",
@@ -48,14 +48,14 @@ class FileUploadControllerTest {
 
         mockMvc.perform(multipart("/api/v1/files/business").file(file).with(user("owner@toggle.com").roles("OWNER")))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.url").value("https://sku-toggle.s3.ap-northeast-2.amazonaws.com/business/test.pdf"))
+            .andExpect(jsonPath("$.data.url").value(org.hamcrest.Matchers.startsWith("/api/v1/files/view?key=business%2F")))
             .andExpect(jsonPath("$.data.key").value("business/test.pdf"));
     }
 
     @Test
     void userCanUploadReviewFile() throws Exception {
         when(s3FileService.uploadFile(any(), eq("review")))
-            .thenReturn(new S3FileService.StoredFile("https://sku-toggle.s3.ap-northeast-2.amazonaws.com/review/test.png", "review/test.png"));
+            .thenReturn(new S3FileService.StoredFile("/api/v1/files/view?key=review%2Ftest.png", "review/test.png"));
 
         MockMultipartFile file = new MockMultipartFile(
             "file",
@@ -66,6 +66,7 @@ class FileUploadControllerTest {
 
         mockMvc.perform(multipart("/api/v1/files/review").file(file).with(user("user@toggle.com").roles("USER")))
             .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.url").value(org.hamcrest.Matchers.startsWith("/api/v1/files/view?key=review%2F")))
             .andExpect(jsonPath("$.data.key").value("review/test.png"));
     }
 

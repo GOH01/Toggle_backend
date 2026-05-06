@@ -2,6 +2,7 @@ package com.toggle.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.toggle.dto.store.ResolveStoreRequest;
 import com.toggle.dto.store.ResolveStoreResponse;
 import com.toggle.dto.store.StoreLookupItemResponse;
@@ -15,6 +16,7 @@ import com.toggle.entity.Store;
 import com.toggle.entity.User;
 import com.toggle.entity.UserRole;
 import com.toggle.global.exception.ApiException;
+import com.toggle.global.util.ImageUrlMapper;
 import com.toggle.repository.FavoriteRepository;
 import com.toggle.repository.OwnerStoreLinkRepository;
 import com.toggle.repository.StoreRepository;
@@ -385,10 +387,16 @@ public class StoreService {
         }
 
         try {
-            return objectMapper.readValue(
+            List<String> parsed = objectMapper.readValue(
                 rawJson,
-                objectMapper.getTypeFactory().constructCollectionType(List.class, String.class)
+                new TypeReference<List<String>>() {
+                }
             );
+
+            return parsed.stream()
+                .map(ImageUrlMapper::toBrowserUrl)
+                .filter(value -> value != null && !value.isBlank())
+                .toList();
         } catch (JsonProcessingException ex) {
             return List.of();
         }
