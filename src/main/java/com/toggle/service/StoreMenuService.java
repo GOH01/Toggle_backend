@@ -9,6 +9,7 @@ import com.toggle.entity.StoreMenu;
 import com.toggle.entity.User;
 import com.toggle.entity.UserRole;
 import com.toggle.global.exception.ApiException;
+import com.toggle.global.util.ImageUrlMapper;
 import com.toggle.repository.OwnerStoreLinkRepository;
 import com.toggle.repository.StoreMenuRepository;
 import java.util.ArrayList;
@@ -28,17 +29,20 @@ public class StoreMenuService {
     private final OwnerStoreLinkRepository ownerStoreLinkRepository;
     private final StoreMenuRepository storeMenuRepository;
     private final StoreEligibilityService storeEligibilityService;
+    private final S3FileService s3FileService;
 
     public StoreMenuService(
         StoreService storeService,
         OwnerStoreLinkRepository ownerStoreLinkRepository,
         StoreMenuRepository storeMenuRepository,
-        StoreEligibilityService storeEligibilityService
+        StoreEligibilityService storeEligibilityService,
+        S3FileService s3FileService
     ) {
         this.storeService = storeService;
         this.ownerStoreLinkRepository = ownerStoreLinkRepository;
         this.storeMenuRepository = storeMenuRepository;
         this.storeEligibilityService = storeEligibilityService;
+        this.s3FileService = s3FileService;
     }
 
     @Transactional(readOnly = true)
@@ -105,24 +109,28 @@ public class StoreMenuService {
         }
 
         List<StoreMenuUpsertItemRequest> menuRequests = request.menus() == null ? List.of() : request.menus();
+        List<StoreMenu> existingMenus = storeMenuRepository.findAllByStoreIdOrderByDisplayOrderAscIdAsc(storeId);
         storeMenuRepository.deleteAllByStoreId(storeId);
 
         List<StoreMenu> menus = new ArrayList<>();
         for (int index = 0; index < menuRequests.size(); index += 1) {
             StoreMenuUpsertItemRequest menuRequest = menuRequests.get(index);
+            String imageUrl = normalizeImageUrl(menuRequest.imageUrl());
             menus.add(new StoreMenu(
                 store,
                 menuRequest.name().trim(),
                 menuRequest.price(),
                 Boolean.TRUE.equals(menuRequest.representative()),
                 menuRequest.description() == null ? null : menuRequest.description().trim(),
-                menuRequest.imageUrl() == null ? null : menuRequest.imageUrl().trim(),
+                imageUrl,
+                ImageUrlMapper.toObjectKey(imageUrl),
                 menuRequest.displayOrder() == null ? index : menuRequest.displayOrder(),
                 menuRequest.available() == null || menuRequest.available()
             ));
         }
 
         storeMenuRepository.saveAll(menus);
+        scheduleMenuImageCleanup(extractMenuImageObjectKeys(existingMenus), extractMenuImageObjectKeys(menus));
         return getMyStoreMenus(storeId, ownerUser);
     }
 
@@ -137,15 +145,68 @@ public class StoreMenuService {
     }
 
     private StoreMenuItemResponse toResponse(StoreMenu menu) {
+        String imageSource = menu.getImageUrl() != null ? menu.getImageUrl() : menu.getImageObjectKey();
         return new StoreMenuItemResponse(
             menu.getId(),
             menu.getName(),
             menu.getPrice(),
             menu.isRepresentative(),
             menu.getDescription(),
-            menu.getImageUrl(),
+            ImageUrlMapper.toBrowserUrl(imageSource),
             menu.getDisplayOrder(),
             menu.isAvailable()
         );
+    }
+
+    private List<String> extractMenuImageObjectKeys(List<StoreMenu> menus) {
+        if (menus == null || menus.isEmpty()) {
+            return List.of();
+        }
+
+        return menus.stream()
+            .map(this::resolveMenuImageObjectKey)
+            .filter(key -> key != null && !key.isBlank())
+            .map(String::trim)
+            .distinct()
+            .toList();
+    }
+
+    private void scheduleMenuImageCleanup(List<String> removedObjectKeys, List<String> nextObjectKeys) {
+        if (removedObjectKeys == null || removedObjectKeys.isEmpty()) {
+            return;
+        }
+
+        List<String> keysToDelete = removedObjectKeys.stream()
+            .filter(key -> key != null && !key.isBlank())
+            .map(String::trim)
+            .filter(key -> nextObjectKeys == null || !nextObjectKeys.contains(key))
+            .distinct()
+            .toList();
+
+        if (!keysToDelete.isEmpty()) {
+            s3FileService.deleteFilesAfterCommit(keysToDelete);
+        }
+    }
+
+    private String resolveMenuImageObjectKey(StoreMenu menu) {
+        if (menu == null) {
+            return null;
+        }
+
+        String storedKey = menu.getImageObjectKey();
+        if (storedKey != null && !storedKey.isBlank()) {
+            return storedKey.trim();
+        }
+
+        return ImageUrlMapper.toObjectKey(menu.getImageUrl());
+    }
+
+    private String normalizeImageUrl(String imageUrl) {
+        if (imageUrl == null) {
+            return null;
+        }
+
+        String normalized = imageUrl.trim();
+        return normalized.isBlank() ? null : normalized;
     }
 }

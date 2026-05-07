@@ -37,6 +37,9 @@ public class StoreMenu extends BaseTimeEntity {
     @Column(length = 100000)
     private String imageUrl;
 
+    @Column(length = 1024)
+    private String imageObjectKey;
+
     @Column(nullable = false)
     private int displayOrder;
 
@@ -53,6 +56,7 @@ public class StoreMenu extends BaseTimeEntity {
         boolean representative,
         String description,
         String imageUrl,
+        String imageObjectKey,
         int displayOrder,
         boolean available
     ) {
@@ -62,8 +66,22 @@ public class StoreMenu extends BaseTimeEntity {
         this.representative = representative;
         this.description = description;
         this.imageUrl = imageUrl;
+        this.imageObjectKey = imageObjectKey;
         this.displayOrder = displayOrder;
         this.available = available;
+    }
+
+    public StoreMenu(
+        Store store,
+        String name,
+        int price,
+        boolean representative,
+        String description,
+        String imageUrl,
+        int displayOrder,
+        boolean available
+    ) {
+        this(store, name, price, representative, description, imageUrl, null, displayOrder, available);
     }
 
     public Long getId() {
@@ -92,6 +110,10 @@ public class StoreMenu extends BaseTimeEntity {
 
     public String getImageUrl() {
         return imageUrl;
+    }
+
+    public String getImageObjectKey() {
+        return imageObjectKey;
     }
 
     public int getDisplayOrder() {
