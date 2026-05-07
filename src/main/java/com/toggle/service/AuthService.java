@@ -12,15 +12,18 @@ import com.toggle.dto.user.UpdateMyMapProfileRequest;
 import com.toggle.entity.User;
 import com.toggle.entity.UserRole;
 import com.toggle.entity.UserStatus;
+import com.toggle.entity.UserMap;
 import com.toggle.global.config.JwtProperties;
 import com.toggle.global.exception.ApiException;
 import com.toggle.global.security.CustomUserPrincipal;
 import com.toggle.global.security.JwtTokenProvider;
 import com.toggle.repository.FavoriteRepository;
 import com.toggle.repository.PublicFavoriteRepository;
+import com.toggle.repository.UserMapRepository;
 import com.toggle.repository.UserRepository;
 import java.util.List;
 import java.util.Locale;
+import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -37,6 +40,7 @@ public class AuthService {
     private final UserRepository userRepository;
     private final FavoriteRepository favoriteRepository;
     private final PublicFavoriteRepository publicFavoriteRepository;
+    private final UserMapRepository userMapRepository;
     private final PasswordEncoder passwordEncoder;
     private final AuthenticationManager authenticationManager;
     private final JwtTokenProvider jwtTokenProvider;
@@ -46,6 +50,7 @@ public class AuthService {
         UserRepository userRepository,
         FavoriteRepository favoriteRepository,
         PublicFavoriteRepository publicFavoriteRepository,
+        UserMapRepository userMapRepository,
         PasswordEncoder passwordEncoder,
         AuthenticationManager authenticationManager,
         JwtTokenProvider jwtTokenProvider,
@@ -54,6 +59,7 @@ public class AuthService {
         this.userRepository = userRepository;
         this.favoriteRepository = favoriteRepository;
         this.publicFavoriteRepository = publicFavoriteRepository;
+        this.userMapRepository = userMapRepository;
         this.passwordEncoder = passwordEncoder;
         this.authenticationManager = authenticationManager;
         this.jwtTokenProvider = jwtTokenProvider;
@@ -150,12 +156,21 @@ public class AuthService {
     @Transactional
     public MeResponse.MapProfile updateMyMapProfile(UpdateMyMapProfileRequest request) {
         User user = getAuthenticatedUser();
+        UserMap map = ensureDefaultMap(user);
+        map.update(
+            request.isPublic(),
+            normalizeNullableText(request.title()),
+            normalizeNullableText(request.description()),
+            normalizeNullableText(request.profileImageUrl())
+        );
         user.updateMapProfile(
             request.isPublic(),
             normalizeNullableText(request.title()),
             normalizeNullableText(request.description()),
             normalizeNullableText(request.profileImageUrl())
         );
+        syncUserMapBridge(user, map);
+        userMapRepository.save(map);
         userRepository.save(user);
         return buildMapProfile(user);
     }
@@ -203,13 +218,14 @@ public class AuthService {
     }
 
     private MeResponse.MapProfile buildMapProfile(User user) {
-        String publicMapUuid = ensurePublicMapUuid(user);
+        UserMap defaultMap = ensureDefaultMap(user);
+        syncUserMapBridge(user, defaultMap);
         return new MeResponse.MapProfile(
-            publicMapUuid,
-            user.isPublicMap(),
-            resolveMapTitle(user),
-            user.getMapDescription(),
-            user.getProfileImageUrl()
+            defaultMap.getPublicMapUuid(),
+            defaultMap.isPublic(),
+            defaultMap.getTitle(),
+            defaultMap.getDescription(),
+            defaultMap.getProfileImageUrl()
         );
     }
 
@@ -273,6 +289,52 @@ public class AuthService {
 
         userRepository.save(user);
         return user.getPublicMapUuid();
+    }
+
+    public UserMap ensureDefaultMap(User user) {
+        if (user.getDefaultMapId() != null) {
+            return userMapRepository.findByIdAndDeletedAtIsNull(user.getDefaultMapId())
+                .orElseGet(() -> createDefaultMap(user));
+        }
+
+        if (user.getPublicMapUuid() != null && !user.getPublicMapUuid().isBlank()) {
+            UserMap existingByUuid = userMapRepository.findByPublicMapUuidAndDeletedAtIsNull(user.getPublicMapUuid()).orElse(null);
+            if (existingByUuid != null) {
+                user.setDefaultMapId(existingByUuid.getId());
+                userRepository.save(user);
+                syncUserMapBridge(user, existingByUuid);
+                return existingByUuid;
+            }
+        }
+
+        return createDefaultMap(user);
+    }
+
+    private UserMap createDefaultMap(User user) {
+        String publicMapUuid = normalizeNullableText(user.getPublicMapUuid());
+        if (publicMapUuid == null) {
+            publicMapUuid = UUID.randomUUID().toString();
+            user.setPublicMapUuid(publicMapUuid);
+        }
+
+        UserMap created = userMapRepository.save(new UserMap(
+            user,
+            publicMapUuid,
+            resolveMapTitle(user),
+            user.getMapDescription(),
+            user.getProfileImageUrl(),
+            user.isPublicMap(),
+            true
+        ));
+        user.setDefaultMapId(created.getId());
+        syncUserMapBridge(user, created);
+        userRepository.save(user);
+        return created;
+    }
+
+    private void syncUserMapBridge(User user, UserMap map) {
+        user.updateMapProfile(map.isPublic(), map.getTitle(), map.getDescription(), map.getProfileImageUrl());
+        user.setPublicMapUuid(map.getPublicMapUuid());
     }
 
     private User requireActiveUser(Long userId) {

@@ -47,6 +47,8 @@ import com.toggle.repository.OwnerApplicationRepository;
 import com.toggle.repository.OwnerStoreLinkRepository;
 import com.toggle.repository.StoreRepository;
 import com.toggle.repository.StoreReviewRepository;
+import com.toggle.repository.UserMapLikeRepository;
+import com.toggle.repository.UserMapRepository;
 import com.toggle.repository.UserRepository;
 import com.toggle.service.KakaoPlaceClient;
 import com.toggle.service.S3FileService;
@@ -115,6 +117,12 @@ class ToggleBackendApplicationTests {
     @Autowired
     private StoreReviewRepository storeReviewRepository;
 
+    @Autowired
+    private UserMapRepository userMapRepository;
+
+    @Autowired
+    private UserMapLikeRepository userMapLikeRepository;
+
     @MockBean
     private KakaoPlaceClient kakaoPlaceClient;
 
@@ -136,6 +144,8 @@ class ToggleBackendApplicationTests {
         ownerStoreLinkRepository.deleteAll();
         ownerApplicationRepository.deleteAll();
         storeRepository.deleteAll();
+        userMapLikeRepository.deleteAll();
+        userMapRepository.deleteAll();
         userRepository.deleteAll();
         given(kakaoPlaceClient.searchByKeyword(anyString())).willReturn(java.util.List.of());
         given(nationalTaxServiceClient.verifyBusiness(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString()))

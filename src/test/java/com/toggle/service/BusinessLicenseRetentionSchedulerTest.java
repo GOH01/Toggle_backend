@@ -9,6 +9,8 @@ import com.toggle.entity.OwnerApplication;
 import com.toggle.entity.User;
 import com.toggle.entity.UserRole;
 import com.toggle.entity.UserStatus;
+import com.toggle.repository.UserMapLikeRepository;
+import com.toggle.repository.UserMapRepository;
 import com.toggle.repository.OwnerApplicationRepository;
 import com.toggle.repository.UserRepository;
 import java.time.LocalDate;
@@ -36,6 +38,12 @@ class BusinessLicenseRetentionSchedulerTest {
     private UserRepository userRepository;
 
     @Autowired
+    private UserMapLikeRepository userMapLikeRepository;
+
+    @Autowired
+    private UserMapRepository userMapRepository;
+
+    @Autowired
     private PasswordEncoder passwordEncoder;
 
     @MockBean
@@ -50,6 +58,8 @@ class BusinessLicenseRetentionSchedulerTest {
     @BeforeEach
     void setUp() {
         ownerApplicationRepository.deleteAll();
+        userMapLikeRepository.deleteAll();
+        userMapRepository.deleteAll();
         userRepository.deleteAll();
         given(kakaoPlaceClient.searchByKeyword(anyString())).willReturn(List.of());
     }

@@ -27,6 +27,10 @@ public class MyMapPublicInstitution extends BaseTimeEntity {
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "map_id")
+    private UserMap map;
+
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "public_institution_id", nullable = false)
     private PublicInstitution publicInstitution;
@@ -39,12 +43,26 @@ public class MyMapPublicInstitution extends BaseTimeEntity {
         this.publicInstitution = publicInstitution;
     }
 
+    public MyMapPublicInstitution(User user, UserMap map, PublicInstitution publicInstitution) {
+        this.user = user;
+        this.map = map;
+        this.publicInstitution = publicInstitution;
+    }
+
     public Long getId() {
         return id;
     }
 
     public User getUser() {
         return user;
+    }
+
+    public UserMap getMap() {
+        return map;
+    }
+
+    public void setMap(UserMap map) {
+        this.map = map;
     }
 
     public PublicInstitution getPublicInstitution() {

@@ -19,6 +19,8 @@ public interface StoreRepository extends JpaRepository<Store, Long> {
 
     List<Store> findAllByIdInAndDeletedAtIsNull(List<Long> ids);
 
+    Optional<Store> findByIdAndDeletedAtIsNull(Long id);
+
     List<Store> findAllByDeletedAtIsNullOrderByIdDesc();
 
     List<Store> findTop10ByAddressNormalizedContainingAndDeletedAtIsNull(String addressNormalized);

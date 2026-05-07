@@ -27,6 +27,10 @@ public class MyMapStore extends BaseTimeEntity {
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "map_id")
+    private UserMap map;
+
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "store_id", nullable = false)
     private Store store;
@@ -39,12 +43,26 @@ public class MyMapStore extends BaseTimeEntity {
         this.store = store;
     }
 
+    public MyMapStore(User user, UserMap map, Store store) {
+        this.user = user;
+        this.map = map;
+        this.store = store;
+    }
+
     public Long getId() {
         return id;
     }
 
     public User getUser() {
         return user;
+    }
+
+    public UserMap getMap() {
+        return map;
+    }
+
+    public void setMap(UserMap map) {
+        this.map = map;
     }
 
     public Store getStore() {

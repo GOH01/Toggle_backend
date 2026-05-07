@@ -10,10 +10,22 @@ public interface MyMapPublicInstitutionRepository extends JpaRepository<MyMapPub
 
     boolean existsByUserIdAndPublicInstitutionId(Long userId, Long publicInstitutionId);
 
+    boolean existsByMapIdAndPublicInstitutionId(Long mapId, Long publicInstitutionId);
+
     Optional<MyMapPublicInstitution> findByUserIdAndPublicInstitutionId(Long userId, Long publicInstitutionId);
+
+    Optional<MyMapPublicInstitution> findByMapIdAndPublicInstitutionId(Long mapId, Long publicInstitutionId);
 
     @EntityGraph(attributePaths = "publicInstitution")
     List<MyMapPublicInstitution> findAllByUserIdOrderByCreatedAtDesc(Long userId);
 
+    @EntityGraph(attributePaths = "publicInstitution")
+    List<MyMapPublicInstitution> findAllByUserIdAndMapIsNullOrderByCreatedAtDesc(Long userId);
+
+    @EntityGraph(attributePaths = "publicInstitution")
+    List<MyMapPublicInstitution> findAllByMapIdOrderByCreatedAtDesc(Long mapId);
+
     long countByUserId(Long userId);
+
+    void deleteAllByMapId(Long mapId);
 }

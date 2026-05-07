@@ -26,6 +26,8 @@ import com.toggle.repository.OwnerStoreLinkRepository;
 import com.toggle.repository.MapVerificationHistoryRepository;
 import com.toggle.repository.BusinessVerificationHistoryRepository;
 import com.toggle.repository.AdminReviewLogRepository;
+import com.toggle.repository.UserMapLikeRepository;
+import com.toggle.repository.UserMapRepository;
 import com.toggle.repository.UserRepository;
 import java.nio.charset.StandardCharsets;
 import java.math.BigDecimal;
@@ -71,6 +73,12 @@ class OwnerApplicationServiceTest {
     private UserRepository userRepository;
 
     @Autowired
+    private UserMapLikeRepository userMapLikeRepository;
+
+    @Autowired
+    private UserMapRepository userMapRepository;
+
+    @Autowired
     private PasswordEncoder passwordEncoder;
 
     @MockBean
@@ -90,6 +98,8 @@ class OwnerApplicationServiceTest {
         mapVerificationHistoryRepository.deleteAll();
         ownerApplicationRepository.deleteAll();
         storeRepository.deleteAll();
+        userMapLikeRepository.deleteAll();
+        userMapRepository.deleteAll();
         userRepository.deleteAll();
 
         given(kakaoPlaceClient.searchByKeyword(anyString())).willReturn(List.of());

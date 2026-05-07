@@ -11,6 +11,8 @@ import com.toggle.entity.UserStatus;
 import com.toggle.global.config.JpaAuditingConfig;
 import com.toggle.repository.StoreRepository;
 import com.toggle.repository.StoreReviewRepository;
+import com.toggle.repository.UserMapLikeRepository;
+import com.toggle.repository.UserMapRepository;
 import com.toggle.repository.UserRepository;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -39,12 +41,20 @@ class StoreReviewRepositoryTest {
     private UserRepository userRepository;
 
     @Autowired
+    private UserMapLikeRepository userMapLikeRepository;
+
+    @Autowired
+    private UserMapRepository userMapRepository;
+
+    @Autowired
     private TestEntityManager entityManager;
 
     @BeforeEach
     void setUp() {
         storeReviewRepository.deleteAll();
         storeRepository.deleteAll();
+        userMapLikeRepository.deleteAll();
+        userMapRepository.deleteAll();
         userRepository.deleteAll();
     }
 

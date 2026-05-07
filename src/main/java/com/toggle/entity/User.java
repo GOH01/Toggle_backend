@@ -31,6 +31,9 @@ public class User extends BaseTimeEntity {
     @Column(name = "public_map_uuid", unique = true, length = 36)
     private String publicMapUuid;
 
+    @Column(name = "default_map_id")
+    private Long defaultMapId;
+
     @Column(name = "owner_display_name")
     private String ownerDisplayName;
 
@@ -91,6 +94,10 @@ public class User extends BaseTimeEntity {
         return publicMapUuid;
     }
 
+    public Long getDefaultMapId() {
+        return defaultMapId;
+    }
+
     public String getPassword() {
         return password;
     }
@@ -136,6 +143,14 @@ public class User extends BaseTimeEntity {
         if (profileImageUrl != null) {
             this.profileImageUrl = profileImageUrl;
         }
+    }
+
+    public void setDefaultMapId(Long defaultMapId) {
+        this.defaultMapId = defaultMapId;
+    }
+
+    public void setPublicMapUuid(String publicMapUuid) {
+        this.publicMapUuid = publicMapUuid;
     }
 
     public boolean ensurePublicMapUuid() {

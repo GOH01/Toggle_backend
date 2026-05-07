@@ -49,16 +49,20 @@ public class SecurityConfig {
                 .requestMatchers(
                     "/api/health",
                     "/actuator/health",
-                "/api/v1/auth/signup",
-                "/api/v1/auth/login",
-                "/api/v1/auth/refresh",
-                "/api/v1/auth/logout",
-                "/api/v1/stores/resolve",
-                "/api/v1/stores/lookup"
-            ).permitAll()
+                    "/api/v1/auth/signup",
+                    "/api/v1/auth/login",
+                    "/api/v1/auth/refresh",
+                    "/api/v1/auth/logout",
+                    "/api/v1/stores/resolve",
+                    "/api/v1/stores/lookup"
+                ).permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/files/business", "/api/v1/files/menu", "/api/v1/files/store").hasRole("OWNER")
                 .requestMatchers(HttpMethod.POST, "/api/v1/files/review").hasAnyRole("USER", "OWNER")
                 .requestMatchers(HttpMethod.GET, "/api/v1/files/view").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/v1/maps", "/api/v1/maps/*", "/api/v1/maps/*/likes").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/v1/maps/*/likes").authenticated()
+                .requestMatchers(HttpMethod.DELETE, "/api/v1/maps/*/likes").authenticated()
+                .requestMatchers("/api/v1/my-maps/**").authenticated()
                 .requestMatchers(HttpMethod.GET, "/api/v1/public-maps/search").authenticated()
                 .requestMatchers(HttpMethod.GET, "/api/v1/public-maps/*").permitAll()
                 .requestMatchers(
