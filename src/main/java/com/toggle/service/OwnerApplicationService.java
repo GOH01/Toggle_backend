@@ -679,15 +679,19 @@ public class OwnerApplicationService {
                 return;
             }
 
-            if (candidates.size() > 1) {
-                Candidate ambiguousCandidate = candidates.get(0);
+            List<Candidate> narrowedCandidates = candidates.size() > 1
+                ? narrowCandidatesByStoreName(application.getStoreName(), candidates)
+                : candidates;
+
+            if (narrowedCandidates.size() > 1) {
+                Candidate ambiguousCandidate = narrowedCandidates.get(0);
                 application.markMapVerificationFailed();
                 mapVerificationHistoryRepository.save(new MapVerificationHistory(
                     application,
                     ambiguousCandidate.queryText(),
                     ambiguousCandidate.queryType(),
                     VerificationRecordStatus.FAILED,
-                    candidates.size(),
+                    narrowedCandidates.size(),
                     ambiguousCandidate.externalPlaceId(),
                     ambiguousCandidate.storeName(),
                     ambiguousCandidate.roadAddress(),
@@ -696,16 +700,16 @@ public class OwnerApplicationService {
                     ambiguousCandidate.categoryName(),
                     ambiguousCandidate.latitude() == null ? null : ambiguousCandidate.latitude().toPlainString(),
                     ambiguousCandidate.longitude() == null ? null : ambiguousCandidate.longitude().toPlainString(),
-                    safeJson(candidates),
+                    safeJson(narrowedCandidates),
                     null,
                     "KAKAO_EXACT_ADDRESS_AMBIGUOUS",
-                    "카카오 주소 검색 결과가 여러 개입니다. 주소만으로 매장을 특정할 수 없습니다.",
+                    "카카오 주소 검색 결과가 여러 개입니다. 상호명으로도 매장을 특정할 수 없습니다.",
                     LocalDateTime.now()
                 ));
                 return;
             }
 
-            Candidate bestCandidate = candidates.get(0);
+            Candidate bestCandidate = narrowedCandidates.get(0);
             Optional<Store> existingStore = storeRepository.findByExternalSourceAndExternalPlaceIdAndDeletedAtIsNull(
                 ExternalSource.KAKAO,
                 bestCandidate.externalPlaceId()
@@ -717,7 +721,7 @@ public class OwnerApplicationService {
                     bestCandidate.queryText(),
                     bestCandidate.queryType(),
                     VerificationRecordStatus.FAILED,
-                    candidates.size(),
+                    narrowedCandidates.size(),
                     bestCandidate.externalPlaceId(),
                     bestCandidate.storeName(),
                     bestCandidate.roadAddress(),
@@ -726,7 +730,7 @@ public class OwnerApplicationService {
                     bestCandidate.categoryName(),
                     bestCandidate.latitude() == null ? null : bestCandidate.latitude().toPlainString(),
                     bestCandidate.longitude() == null ? null : bestCandidate.longitude().toPlainString(),
-                    safeJson(candidates),
+                    safeJson(narrowedCandidates),
                     existingStore.get(),
                     "KAKAO_PLACE_ALREADY_REGISTERED",
                     "이미 다른 점주가 등록한 매장입니다.",
@@ -758,7 +762,7 @@ public class OwnerApplicationService {
                 bestCandidate.queryText(),
                 bestCandidate.queryType(),
                 VerificationRecordStatus.SUCCESS,
-                candidates.size(),
+                narrowedCandidates.size(),
                 bestCandidate.externalPlaceId(),
                 bestCandidate.storeName(),
                 bestCandidate.roadAddress(),
@@ -767,7 +771,7 @@ public class OwnerApplicationService {
                 bestCandidate.categoryName(),
                 bestCandidate.latitude() == null ? null : bestCandidate.latitude().toPlainString(),
                 bestCandidate.longitude() == null ? null : bestCandidate.longitude().toPlainString(),
-                safeJson(candidates),
+                safeJson(narrowedCandidates),
                 verifiedStore,
                 null,
                 null,
@@ -836,6 +840,26 @@ public class OwnerApplicationService {
             addressQuery
         ));
         return deduplicateCandidates(candidates);
+    }
+
+    private List<Candidate> narrowCandidatesByStoreName(String requestedStoreName, List<Candidate> candidates) {
+        if (candidates.size() <= 1) {
+            return candidates;
+        }
+
+        String normalizedRequestedStoreName = normalizeStoreNameForMatch(requestedStoreName);
+        if (normalizedRequestedStoreName.isBlank()) {
+            return candidates;
+        }
+
+        List<Candidate> exactNameCandidates = candidates.stream()
+            .filter(candidate -> normalizeStoreNameForMatch(candidate.storeName()).contains(normalizedRequestedStoreName))
+            .toList();
+        if (!exactNameCandidates.isEmpty()) {
+            return exactNameCandidates;
+        }
+
+        return candidates;
     }
 
     private List<Candidate> scoreCandidates(
@@ -922,6 +946,16 @@ public class OwnerApplicationService {
             return "";
         }
         return rawAddress.trim().replaceAll("\\s+", " ");
+    }
+
+    private String normalizeStoreNameForMatch(String rawStoreName) {
+        if (rawStoreName == null) {
+            return "";
+        }
+        return rawStoreName
+            .trim()
+            .toLowerCase(Locale.ROOT)
+            .replaceAll("[^0-9a-z가-힣]", "");
     }
 
     private String normalizeBusinessLicenseOriginalName(String originalFilename) {

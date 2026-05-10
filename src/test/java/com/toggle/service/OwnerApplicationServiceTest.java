@@ -13,6 +13,7 @@ import com.toggle.dto.owner.OwnerApplicationRequest;
 import com.toggle.dto.owner.OwnerApplicationUpdateRequest;
 import com.toggle.dto.owner.OwnerStoreProfileUpdateRequest;
 import com.toggle.dto.owner.NationalTaxVerificationResult;
+import com.toggle.dto.kakao.KakaoKeywordSearchResponse;
 import com.toggle.global.exception.ApiException;
 import com.toggle.entity.ExternalSource;
 import com.toggle.entity.BusinessVerificationStatus;
@@ -527,6 +528,65 @@ class OwnerApplicationServiceTest {
 
         verify(kakaoPlaceClient).searchByKeyword("경기 안양시 만안구 안양로 96");
         verify(kakaoPlaceClient, never()).searchByKeyword("bbq 경기 안양시 만안구 안양로 96");
+    }
+
+    @Test
+    void createApplicationShouldResolveAmbiguousAddressByStoreNameCaseInsensitive() {
+        User owner = userRepository.save(new User(
+            "owner-store-name-match@toggle.com",
+            passwordEncoder.encode("password123!"),
+            "owner-store-name-match",
+            UserRole.OWNER,
+            UserStatus.ACTIVE
+        ));
+
+        given(s3FileService.uploadFile(org.mockito.ArgumentMatchers.any(), eq("business")))
+            .willReturn(new S3FileService.StoredFile("https://sku-toggle.s3.ap-northeast-2.amazonaws.com/business/license.pdf", "business/license.pdf"));
+        given(kakaoPlaceClient.searchByKeyword("서울특별시 강남구 테헤란로 123"))
+            .willReturn(List.of(
+                new KakaoKeywordSearchResponse.KakaoPlaceDocument(
+                    "place-1",
+                    "BBQ CHICKEN GANGNAM",
+                    "서울특별시 강남구 테헤란로 123",
+                    "서울특별시 강남구 테헤란로 123",
+                    "02-1111-1111",
+                    "음식점 > 치킨",
+                    new BigDecimal("127.0276100"),
+                    new BigDecimal("37.4980950")
+                ),
+                new KakaoKeywordSearchResponse.KakaoPlaceDocument(
+                    "place-2",
+                    "OTHER STORE",
+                    "서울특별시 강남구 테헤란로 123",
+                    "서울특별시 강남구 테헤란로 123",
+                    "02-2222-2222",
+                    "음식점 > 한식",
+                    new BigDecimal("127.0276100"),
+                    new BigDecimal("37.4980950")
+                )
+            ));
+
+        OwnerApplicationRequest request = new OwnerApplicationRequest(
+            "bbq chicken gangnam",
+            "123-45-67890",
+            "홍길동",
+            LocalDate.of(2021, 3, 15),
+            "서울특별시 강남구 테헤란로 123",
+            "02-1234-5678"
+        );
+
+        ownerApplicationService.createApplication(owner, request, new MockMultipartFile(
+            "businessLicenseFile",
+            "license.pdf",
+            "application/pdf",
+            "pdf-bytes".getBytes(StandardCharsets.UTF_8)
+        ));
+
+        OwnerApplication stored = ownerApplicationRepository.findAllByUserIdOrderByCreatedAtDesc(owner.getId()).getFirst();
+        assertThat(stored.getMapVerificationStatus()).isEqualTo(MapVerificationStatus.VERIFIED);
+        var detail = ownerApplicationService.getApplicationDetail(stored.getId());
+        assertThat(detail.application().verifiedStoreId()).isNotNull();
+        assertThat(detail.application().verifiedStoreName()).isEqualTo("BBQ CHICKEN GANGNAM");
     }
 
     @Test
