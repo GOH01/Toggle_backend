@@ -1,6 +1,7 @@
 package com.toggle.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
@@ -12,10 +13,12 @@ import com.toggle.dto.owner.OwnerApplicationUpdateRequest;
 import com.toggle.dto.owner.OwnerStoreProfileUpdateRequest;
 import com.toggle.dto.owner.NationalTaxVerificationResult;
 import com.toggle.entity.ExternalSource;
+import com.toggle.entity.BusinessVerificationStatus;
 import com.toggle.entity.OwnerApplication;
 import com.toggle.entity.OwnerApplicationReviewStatus;
 import com.toggle.entity.OwnerStoreLink;
 import com.toggle.entity.OwnerStoreMatchStatus;
+import com.toggle.entity.MapVerificationStatus;
 import com.toggle.entity.Store;
 import com.toggle.entity.User;
 import com.toggle.entity.UserRole;
@@ -43,6 +46,7 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.mock.web.MockMultipartFile;
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -210,6 +214,78 @@ class OwnerApplicationServiceTest {
         OwnerApplication updated = ownerApplicationRepository.findById(stored.getId()).orElseThrow();
         assertThat(updated.getBusinessLicenseObjectKey()).isEqualTo("business/second.pdf");
         verify(s3FileService).deleteFile("business/first.pdf");
+    }
+
+    @Test
+    void createApplicationShouldNotBubbleUnexpectedBusinessVerificationRuntimeFailure() {
+        User owner = userRepository.save(new User(
+            "owner5@toggle.com",
+            passwordEncoder.encode("password123!"),
+            "owner5",
+            UserRole.OWNER,
+            UserStatus.ACTIVE
+        ));
+
+        given(s3FileService.uploadFile(org.mockito.ArgumentMatchers.any(), eq("business")))
+            .willReturn(new S3FileService.StoredFile("https://sku-toggle.s3.ap-northeast-2.amazonaws.com/business/license.pdf", "business/license.pdf"));
+        given(nationalTaxServiceClient.verifyBusiness(anyString(), anyString(), anyString()))
+            .willThrow(new RuntimeException("national-tax-exploded"));
+
+        OwnerApplicationRequest request = new OwnerApplicationRequest(
+            "owner-shop",
+            "123-45-67890",
+            "홍길동",
+            LocalDate.of(2021, 3, 15),
+            "서울특별시 강남구 테헤란로 123",
+            "02-1234-5678"
+        );
+
+        assertThatCode(() -> ownerApplicationService.createApplication(owner, request, new MockMultipartFile(
+            "businessLicenseFile",
+            "license.pdf",
+            "application/pdf",
+            "pdf-bytes".getBytes(StandardCharsets.UTF_8)
+        ))).doesNotThrowAnyException();
+
+        OwnerApplication stored = ownerApplicationRepository.findAllByUserIdOrderByCreatedAtDesc(owner.getId()).getFirst();
+        assertThat(stored.getBusinessVerificationStatus()).isEqualTo(BusinessVerificationStatus.AUTO_VERIFICATION_FAILED);
+        assertThat(stored.getMapVerificationStatus()).isEqualTo(MapVerificationStatus.FAILED);
+    }
+
+    @Test
+    void createApplicationShouldNotBubbleUnexpectedMapVerificationRuntimeFailure() {
+        User owner = userRepository.save(new User(
+            "owner6@toggle.com",
+            passwordEncoder.encode("password123!"),
+            "owner6",
+            UserRole.OWNER,
+            UserStatus.ACTIVE
+        ));
+
+        given(s3FileService.uploadFile(org.mockito.ArgumentMatchers.any(), eq("business")))
+            .willReturn(new S3FileService.StoredFile("https://sku-toggle.s3.ap-northeast-2.amazonaws.com/business/license.pdf", "business/license.pdf"));
+        given(kakaoPlaceClient.searchByKeyword(anyString()))
+            .willThrow(new RuntimeException("kakao-exploded"));
+
+        OwnerApplicationRequest request = new OwnerApplicationRequest(
+            "owner-shop",
+            "123-45-67890",
+            "홍길동",
+            LocalDate.of(2021, 3, 15),
+            "서울특별시 강남구 테헤란로 123",
+            "02-1234-5678"
+        );
+
+        assertThatCode(() -> ownerApplicationService.createApplication(owner, request, new MockMultipartFile(
+            "businessLicenseFile",
+            "license.pdf",
+            "application/pdf",
+            "pdf-bytes".getBytes(StandardCharsets.UTF_8)
+        ))).doesNotThrowAnyException();
+
+        OwnerApplication stored = ownerApplicationRepository.findAllByUserIdOrderByCreatedAtDesc(owner.getId()).getFirst();
+        assertThat(stored.getBusinessVerificationStatus()).isEqualTo(BusinessVerificationStatus.AUTO_VERIFIED);
+        assertThat(stored.getMapVerificationStatus()).isEqualTo(MapVerificationStatus.FAILED);
     }
 
     @Test

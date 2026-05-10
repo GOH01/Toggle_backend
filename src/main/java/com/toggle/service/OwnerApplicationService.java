@@ -490,13 +490,48 @@ public class OwnerApplicationService {
 
     private void runBusinessVerification(OwnerApplication application) {
         application.markAutoVerificationPending();
-        NationalTaxVerificationResult result;
         try {
-            result = nationalTaxServiceClient.verifyBusiness(
+            NationalTaxVerificationResult result = nationalTaxServiceClient.verifyBusiness(
                 application.getBusinessNumber(),
                 application.getRepresentativeName(),
                 application.getBusinessOpenDate().format(NTS_DATE_FORMAT)
             );
+            if (result.valid()) {
+                application.markAutoVerified();
+                businessVerificationHistoryRepository.save(new BusinessVerificationHistory(
+                    application,
+                    BusinessVerificationType.AUTO_NTS,
+                    VerificationRecordStatus.SUCCESS,
+                    result.requestPayloadJson(),
+                    result.responsePayloadJson(),
+                    result.matchedBusinessNumber(),
+                    result.matchedRepresentativeName(),
+                    result.matchedOpenDate(),
+                    result.matchedAddress(),
+                    null,
+                    null,
+                    null,
+                    LocalDateTime.now()
+                ));
+                return;
+            }
+
+            application.markAutoVerificationFailed();
+            businessVerificationHistoryRepository.save(new BusinessVerificationHistory(
+                application,
+                BusinessVerificationType.AUTO_NTS,
+                VerificationRecordStatus.FAILED,
+                result.requestPayloadJson(),
+                result.responsePayloadJson(),
+                result.matchedBusinessNumber(),
+                result.matchedRepresentativeName(),
+                result.matchedOpenDate(),
+                result.matchedAddress(),
+                result.failureCode(),
+                result.failureMessage(),
+                null,
+                LocalDateTime.now()
+            ));
         } catch (ApiException ex) {
             if (HttpStatus.SERVICE_UNAVAILABLE.equals(ex.getStatus())) {
                 application.markAutoVerificationUnavailable();
@@ -518,52 +553,150 @@ public class OwnerApplicationService {
                 null,
                 LocalDateTime.now()
             ));
-            return;
-        }
-
-        if (result.valid()) {
-            application.markAutoVerified();
+        } catch (Exception ex) {
+            application.markAutoVerificationFailed();
             businessVerificationHistoryRepository.save(new BusinessVerificationHistory(
                 application,
                 BusinessVerificationType.AUTO_NTS,
-                VerificationRecordStatus.SUCCESS,
-                result.requestPayloadJson(),
-                result.responsePayloadJson(),
-                result.matchedBusinessNumber(),
-                result.matchedRepresentativeName(),
-                result.matchedOpenDate(),
-                result.matchedAddress(),
+                VerificationRecordStatus.FAILED,
                 null,
                 null,
+                application.getBusinessNumber(),
+                application.getRepresentativeName(),
+                application.getBusinessOpenDate().toString(),
+                application.getBusinessAddressRaw(),
+                "NATIONAL_TAX_API_ERROR",
+                firstNonBlank(ex.getMessage(), "국세청 API 호출 중 예상치 못한 오류가 발생했습니다."),
                 null,
                 LocalDateTime.now()
             ));
-            return;
         }
-
-        application.markAutoVerificationFailed();
-        businessVerificationHistoryRepository.save(new BusinessVerificationHistory(
-            application,
-            BusinessVerificationType.AUTO_NTS,
-            VerificationRecordStatus.FAILED,
-            result.requestPayloadJson(),
-            result.responsePayloadJson(),
-            result.matchedBusinessNumber(),
-            result.matchedRepresentativeName(),
-            result.matchedOpenDate(),
-            result.matchedAddress(),
-            result.failureCode(),
-            result.failureMessage(),
-            null,
-            LocalDateTime.now()
-        ));
     }
 
     private void runMapVerification(OwnerApplication application) {
         application.markMapVerificationPending();
-        List<Candidate> candidates;
         try {
-            candidates = searchCandidates(application);
+            List<Candidate> candidates = searchCandidates(application);
+            if (candidates.isEmpty()) {
+                application.markMapVerificationFailed();
+                mapVerificationHistoryRepository.save(new MapVerificationHistory(
+                    application,
+                    application.getStoreName() + " " + application.getBusinessAddressRaw(),
+                    MapVerificationQueryType.NAME_AND_ADDRESS,
+                    VerificationRecordStatus.FAILED,
+                    0,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    "[]",
+                    null,
+                    "KAKAO_PLACE_NOT_FOUND",
+                    "카카오맵에서 실영업주소가 정확히 일치하는 매장을 찾지 못했습니다.",
+                    LocalDateTime.now()
+                ));
+                return;
+            }
+
+            List<Candidate> narrowedCandidates = narrowCandidatesByStoreName(application.getStoreName(), candidates);
+            if (narrowedCandidates.size() > 1) {
+                Candidate ambiguousCandidate = narrowedCandidates.get(0);
+                application.markMapVerificationFailed();
+                mapVerificationHistoryRepository.save(new MapVerificationHistory(
+                    application,
+                    ambiguousCandidate.queryText(),
+                    ambiguousCandidate.queryType(),
+                    VerificationRecordStatus.FAILED,
+                    narrowedCandidates.size(),
+                    ambiguousCandidate.externalPlaceId(),
+                    ambiguousCandidate.storeName(),
+                    ambiguousCandidate.roadAddress(),
+                    ambiguousCandidate.jibunAddress(),
+                    ambiguousCandidate.phone(),
+                    ambiguousCandidate.categoryName(),
+                    ambiguousCandidate.latitude() == null ? null : ambiguousCandidate.latitude().toPlainString(),
+                    ambiguousCandidate.longitude() == null ? null : ambiguousCandidate.longitude().toPlainString(),
+                    safeJson(narrowedCandidates),
+                    null,
+                    "KAKAO_EXACT_ADDRESS_AMBIGUOUS",
+                    "실영업주소가 정확히 일치하는 카카오 매장이 여러 개입니다. 상호명까지 확인해도 자동 확정할 수 없습니다.",
+                    LocalDateTime.now()
+                ));
+                return;
+            }
+
+            Candidate bestCandidate = narrowedCandidates.get(0);
+            Optional<Store> existingStore = storeRepository.findByExternalSourceAndExternalPlaceIdAndDeletedAtIsNull(
+                ExternalSource.KAKAO,
+                bestCandidate.externalPlaceId()
+            );
+            if (existingStore.isPresent() && !isSameVerifiedStore(application, existingStore.get())) {
+                application.markMapVerificationFailed();
+                mapVerificationHistoryRepository.save(new MapVerificationHistory(
+                    application,
+                    bestCandidate.queryText(),
+                    bestCandidate.queryType(),
+                    VerificationRecordStatus.FAILED,
+                    narrowedCandidates.size(),
+                    bestCandidate.externalPlaceId(),
+                    bestCandidate.storeName(),
+                    bestCandidate.roadAddress(),
+                    bestCandidate.jibunAddress(),
+                    bestCandidate.phone(),
+                    bestCandidate.categoryName(),
+                    bestCandidate.latitude() == null ? null : bestCandidate.latitude().toPlainString(),
+                    bestCandidate.longitude() == null ? null : bestCandidate.longitude().toPlainString(),
+                    safeJson(narrowedCandidates),
+                    existingStore.get(),
+                    "KAKAO_PLACE_ALREADY_REGISTERED",
+                    "이미 다른 점주가 등록한 매장입니다.",
+                    LocalDateTime.now()
+                ));
+                return;
+            }
+
+            ResolveStoreResponse resolvedStore = storeService.resolveOrCreateStore(new ResolveStoreRequest(
+                ExternalSource.KAKAO.name(),
+                bestCandidate.externalPlaceId(),
+                bestCandidate.storeName(),
+                bestCandidate.storeAddress(),
+                bestCandidate.phone(),
+                bestCandidate.latitude(),
+                bestCandidate.longitude()
+            ));
+            Store verifiedStore = storeService.getStore(resolvedStore.storeId());
+            verifiedStore.markVerified(
+                bestCandidate.roadAddress(),
+                bestCandidate.jibunAddress(),
+                bestCandidate.categoryName(),
+                safeJson(bestCandidate.place()),
+                LocalDateTime.now()
+            );
+            application.markMapVerified(verifiedStore);
+            mapVerificationHistoryRepository.save(new MapVerificationHistory(
+                application,
+                bestCandidate.queryText(),
+                bestCandidate.queryType(),
+                VerificationRecordStatus.SUCCESS,
+                narrowedCandidates.size(),
+                bestCandidate.externalPlaceId(),
+                bestCandidate.storeName(),
+                bestCandidate.roadAddress(),
+                bestCandidate.jibunAddress(),
+                bestCandidate.phone(),
+                bestCandidate.categoryName(),
+                bestCandidate.latitude() == null ? null : bestCandidate.latitude().toPlainString(),
+                bestCandidate.longitude() == null ? null : bestCandidate.longitude().toPlainString(),
+                safeJson(narrowedCandidates),
+                verifiedStore,
+                null,
+                null,
+                LocalDateTime.now()
+            ));
         } catch (ApiException ex) {
             application.markMapVerificationFailed();
             mapVerificationHistoryRepository.save(new MapVerificationHistory(
@@ -586,9 +719,7 @@ public class OwnerApplicationService {
                 ex.getMessage(),
                 LocalDateTime.now()
             ));
-            return;
-        }
-        if (candidates.isEmpty()) {
+        } catch (Exception ex) {
             application.markMapVerificationFailed();
             mapVerificationHistoryRepository.save(new MapVerificationHistory(
                 application,
@@ -604,110 +735,13 @@ public class OwnerApplicationService {
                 null,
                 null,
                 null,
-                "[]",
                 null,
-                "KAKAO_PLACE_NOT_FOUND",
-                "카카오맵에서 실영업주소가 정확히 일치하는 매장을 찾지 못했습니다.",
+                null,
+                "KAKAO_LOCAL_API_ERROR",
+                firstNonBlank(ex.getMessage(), "카카오 장소 검색 중 예상치 못한 오류가 발생했습니다."),
                 LocalDateTime.now()
             ));
-            return;
         }
-
-        List<Candidate> narrowedCandidates = narrowCandidatesByStoreName(application.getStoreName(), candidates);
-        if (narrowedCandidates.size() > 1) {
-            Candidate ambiguousCandidate = narrowedCandidates.get(0);
-            application.markMapVerificationFailed();
-            mapVerificationHistoryRepository.save(new MapVerificationHistory(
-                application,
-                ambiguousCandidate.queryText(),
-                ambiguousCandidate.queryType(),
-                VerificationRecordStatus.FAILED,
-                narrowedCandidates.size(),
-                ambiguousCandidate.externalPlaceId(),
-                ambiguousCandidate.storeName(),
-                ambiguousCandidate.roadAddress(),
-                ambiguousCandidate.jibunAddress(),
-                ambiguousCandidate.phone(),
-                ambiguousCandidate.categoryName(),
-                ambiguousCandidate.latitude() == null ? null : ambiguousCandidate.latitude().toPlainString(),
-                ambiguousCandidate.longitude() == null ? null : ambiguousCandidate.longitude().toPlainString(),
-                safeJson(narrowedCandidates),
-                null,
-                "KAKAO_EXACT_ADDRESS_AMBIGUOUS",
-                "실영업주소가 정확히 일치하는 카카오 매장이 여러 개입니다. 상호명까지 확인해도 자동 확정할 수 없습니다.",
-                LocalDateTime.now()
-            ));
-            return;
-        }
-
-        Candidate bestCandidate = narrowedCandidates.get(0);
-        Optional<Store> existingStore = storeRepository.findByExternalSourceAndExternalPlaceIdAndDeletedAtIsNull(
-            ExternalSource.KAKAO,
-            bestCandidate.externalPlaceId()
-        );
-        if (existingStore.isPresent() && !isSameVerifiedStore(application, existingStore.get())) {
-            application.markMapVerificationFailed();
-            mapVerificationHistoryRepository.save(new MapVerificationHistory(
-                application,
-                bestCandidate.queryText(),
-                bestCandidate.queryType(),
-                VerificationRecordStatus.FAILED,
-                narrowedCandidates.size(),
-                bestCandidate.externalPlaceId(),
-                bestCandidate.storeName(),
-                bestCandidate.roadAddress(),
-                bestCandidate.jibunAddress(),
-                bestCandidate.phone(),
-                bestCandidate.categoryName(),
-                bestCandidate.latitude() == null ? null : bestCandidate.latitude().toPlainString(),
-                bestCandidate.longitude() == null ? null : bestCandidate.longitude().toPlainString(),
-                safeJson(narrowedCandidates),
-                existingStore.get(),
-                "KAKAO_PLACE_ALREADY_REGISTERED",
-                "이미 다른 점주가 등록한 매장입니다.",
-                LocalDateTime.now()
-            ));
-            return;
-        }
-
-        ResolveStoreResponse resolvedStore = storeService.resolveOrCreateStore(new ResolveStoreRequest(
-            ExternalSource.KAKAO.name(),
-            bestCandidate.externalPlaceId(),
-            bestCandidate.storeName(),
-            bestCandidate.storeAddress(),
-            bestCandidate.phone(),
-            bestCandidate.latitude(),
-            bestCandidate.longitude()
-        ));
-        Store verifiedStore = storeService.getStore(resolvedStore.storeId());
-        verifiedStore.markVerified(
-            bestCandidate.roadAddress(),
-            bestCandidate.jibunAddress(),
-            bestCandidate.categoryName(),
-            safeJson(bestCandidate.place()),
-            LocalDateTime.now()
-        );
-        application.markMapVerified(verifiedStore);
-        mapVerificationHistoryRepository.save(new MapVerificationHistory(
-            application,
-            bestCandidate.queryText(),
-            bestCandidate.queryType(),
-                VerificationRecordStatus.SUCCESS,
-                narrowedCandidates.size(),
-                bestCandidate.externalPlaceId(),
-            bestCandidate.storeName(),
-            bestCandidate.roadAddress(),
-            bestCandidate.jibunAddress(),
-            bestCandidate.phone(),
-            bestCandidate.categoryName(),
-            bestCandidate.latitude() == null ? null : bestCandidate.latitude().toPlainString(),
-            bestCandidate.longitude() == null ? null : bestCandidate.longitude().toPlainString(),
-                safeJson(narrowedCandidates),
-                verifiedStore,
-                null,
-                null,
-                LocalDateTime.now()
-            ));
     }
 
     private List<Candidate> searchCandidates(OwnerApplication application) {
@@ -1019,6 +1053,15 @@ public class OwnerApplicationService {
 
     private String blankToEmpty(String value) {
         return value == null ? "" : value.trim();
+    }
+
+    private String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return null;
     }
 
     private void validateTimeField(String value, String label) {
