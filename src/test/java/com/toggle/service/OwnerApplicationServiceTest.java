@@ -155,6 +155,8 @@ class OwnerApplicationServiceTest {
 
         OwnerApplication stored = ownerApplicationRepository.findAllByUserIdOrderByCreatedAtDesc(owner.getId()).getFirst();
         assertThat(stored.getBusinessLicenseOriginalName()).isEqualTo("license.pdf");
+        assertThat(stored.getBusinessLicenseOriginalFilename()).isEqualTo("license.pdf");
+        assertThat(stored.getBusinessLicenseStoredPath()).isEqualTo("business/license.pdf");
         assertThat(stored.getBusinessLicenseObjectKey()).isEqualTo("business/license.pdf");
         assertThat(stored.getBusinessLicenseContentType()).isEqualTo("application/pdf");
         assertThat(stored.getBusinessLicenseSize()).isEqualTo((long) "pdf-bytes".getBytes(StandardCharsets.UTF_8).length);
@@ -198,6 +200,8 @@ class OwnerApplicationServiceTest {
 
         OwnerApplication stored = ownerApplicationRepository.findAllByUserIdOrderByCreatedAtDesc(owner.getId()).getFirst();
         assertThat(stored.getBusinessLicenseOriginalName()).isEqualTo("license.jpg");
+        assertThat(stored.getBusinessLicenseOriginalFilename()).isEqualTo("license.jpg");
+        assertThat(stored.getBusinessLicenseStoredPath()).isEqualTo("business/license.jpg");
         assertThat(stored.getBusinessLicenseObjectKey()).isEqualTo("business/license.jpg");
         assertThat(stored.getBusinessLicenseContentType()).isEqualTo("image/jpeg");
         assertThat(stored.getBusinessLicenseSize()).isEqualTo((long) "jpeg-bytes".getBytes(StandardCharsets.UTF_8).length);
@@ -408,6 +412,8 @@ class OwnerApplicationServiceTest {
 
         OwnerApplication updated = ownerApplicationRepository.findById(stored.getId()).orElseThrow();
         assertThat(updated.getBusinessLicenseOriginalName()).isEqualTo("second.pdf");
+        assertThat(updated.getBusinessLicenseOriginalFilename()).isEqualTo("second.pdf");
+        assertThat(updated.getBusinessLicenseStoredPath()).isEqualTo("business/second.pdf");
         assertThat(updated.getBusinessLicenseObjectKey()).isEqualTo("business/second.pdf");
         assertThat(updated.getBusinessLicenseContentType()).isEqualTo("application/pdf");
         assertThat(updated.getBusinessLicenseSize()).isEqualTo((long) "second".getBytes(StandardCharsets.UTF_8).length);

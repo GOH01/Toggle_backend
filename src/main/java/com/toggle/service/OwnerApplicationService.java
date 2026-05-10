@@ -130,7 +130,7 @@ public class OwnerApplicationService {
         BusinessLicenseMetadata metadata = requireBusinessLicenseMetadata(businessLicenseFile);
         S3FileService.StoredFile storedFile = s3FileService.uploadFile(businessLicenseFile, "business");
         String storedKey = requireStoredBusinessLicenseKey(storedFile.key());
-        OwnerApplication application = buildApplication(ownerUser, request, storedKey, metadata);
+        OwnerApplication application = buildApplication(ownerUser, request, storedKey, metadata.withStorage(storedKey));
         ownerApplicationRepository.save(application);
         runInitialVerifications(application);
 
@@ -161,6 +161,7 @@ public class OwnerApplicationService {
             metadata = requireBusinessLicenseMetadata(businessLicenseFile);
             S3FileService.StoredFile storedFile = s3FileService.uploadFile(businessLicenseFile, "business");
             storedKey = requireStoredBusinessLicenseKey(storedFile.key());
+            metadata = metadata.withStorage(storedKey);
             if (application.getBusinessLicenseObjectKey() != null && !application.getBusinessLicenseObjectKey().isBlank()
                 && !application.getBusinessLicenseObjectKey().equals(storedKey)) {
                 s3FileService.deleteFile(application.getBusinessLicenseObjectKey());
@@ -178,6 +179,8 @@ public class OwnerApplicationService {
             normalizePhone(request.businessPhone()),
             storedKey,
             metadata.originalName(),
+            metadata.originalFilename(),
+            metadata.storedPath(),
             metadata.contentType(),
             metadata.size(),
             metadata.uploadedAt(),
@@ -498,6 +501,8 @@ public class OwnerApplicationService {
             normalizePhone(request.businessPhone()),
             storedKey,
             metadata.originalName(),
+            metadata.originalFilename(),
+            metadata.storedPath(),
             metadata.contentType(),
             metadata.size(),
             metadata.uploadedAt(),
@@ -531,6 +536,9 @@ public class OwnerApplicationService {
         LocalDateTime uploadedAt = LocalDateTime.now();
         return new BusinessLicenseMetadata(
             originalName,
+            originalName,
+            "",
+            "",
             contentType,
             size,
             uploadedAt,
@@ -1222,6 +1230,9 @@ public class OwnerApplicationService {
 
     private record BusinessLicenseMetadata(
         String originalName,
+        String originalFilename,
+        String storedPath,
+        String objectKey,
         String contentType,
         long size,
         LocalDateTime uploadedAt,
@@ -1233,6 +1244,9 @@ public class OwnerApplicationService {
                 : application.getBusinessLicenseUploadedAt();
             return new BusinessLicenseMetadata(
                 normalizeFallbackOriginalName(application.getBusinessLicenseOriginalName(), application.getBusinessLicenseObjectKey()),
+                normalizeFallbackOriginalName(application.getBusinessLicenseOriginalFilename(), application.getBusinessLicenseObjectKey()),
+                normalizeFallbackStoredPath(application.getBusinessLicenseStoredPath(), application.getBusinessLicenseObjectKey()),
+                normalizeFallbackStoredPath(application.getBusinessLicenseObjectKey(), application.getBusinessLicenseStoredPath()),
                 normalizeFallbackContentType(application.getBusinessLicenseContentType()),
                 application.getBusinessLicenseSize() == null || application.getBusinessLicenseSize() <= 0L
                     ? 0L
@@ -1241,6 +1255,21 @@ public class OwnerApplicationService {
                 application.getBusinessLicenseExpiresAt() == null
                     ? uploadedAt.plusDays(BUSINESS_LICENSE_RETENTION_DAYS)
                     : application.getBusinessLicenseExpiresAt()
+            );
+        }
+
+        BusinessLicenseMetadata withStorage(String storedKey) {
+            String normalizedStoredKey = normalizeFallbackStoredPath(storedPath, storedKey);
+            String normalizedObjectKey = normalizeFallbackStoredPath(objectKey, storedKey);
+            return new BusinessLicenseMetadata(
+                originalName,
+                originalFilename,
+                normalizedStoredKey,
+                normalizedObjectKey,
+                contentType,
+                size,
+                uploadedAt,
+                expiresAt
             );
         }
 
@@ -1260,6 +1289,14 @@ public class OwnerApplicationService {
             } catch (Exception ex) {
                 return fallback;
             }
+        }
+
+        private static String normalizeFallbackStoredPath(String storedPath, String fallbackKey) {
+            String candidate = storedPath == null ? "" : storedPath.trim();
+            if (!candidate.isBlank()) {
+                return candidate;
+            }
+            return fallbackKey == null ? "" : fallbackKey.trim();
         }
 
         private static String normalizeFallbackContentType(String contentType) {

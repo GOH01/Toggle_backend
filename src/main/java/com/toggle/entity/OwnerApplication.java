@@ -52,6 +52,12 @@ public class OwnerApplication extends BaseTimeEntity {
     @Column(name = "business_license_original_name", nullable = false, length = 255)
     private String businessLicenseOriginalName;
 
+    @Column(name = "business_license_original_filename", nullable = false, length = 255)
+    private String businessLicenseOriginalFilename;
+
+    @Column(name = "business_license_stored_path", nullable = false, length = 255)
+    private String businessLicenseStoredPath;
+
     @Column(name = "business_license_object_key", nullable = false, length = 1000)
     private String businessLicenseObjectKey;
 
@@ -61,10 +67,10 @@ public class OwnerApplication extends BaseTimeEntity {
     @Column(name = "business_license_size", nullable = false)
     private Long businessLicenseSize;
 
-    @Column(name = "business_license_uploaded_at", nullable = false)
+    @Column(name = "business_license_uploaded_at")
     private LocalDateTime businessLicenseUploadedAt;
 
-    @Column(name = "business_license_expires_at", nullable = false)
+    @Column(name = "business_license_expires_at")
     private LocalDateTime businessLicenseExpiresAt;
 
     @Enumerated(EnumType.STRING)
@@ -122,6 +128,8 @@ public class OwnerApplication extends BaseTimeEntity {
             businessPhone,
             businessLicenseObjectKey,
             deriveOriginalName(businessLicenseObjectKey),
+            deriveOriginalFilename(businessLicenseObjectKey),
+            normalizeStoredPath(businessLicenseObjectKey),
             "application/octet-stream",
             0L,
             LocalDateTime.now(),
@@ -140,6 +148,8 @@ public class OwnerApplication extends BaseTimeEntity {
         String businessPhone,
         String businessLicenseObjectKey,
         String businessLicenseOriginalName,
+        String businessLicenseOriginalFilename,
+        String businessLicenseStoredPath,
         String businessLicenseContentType,
         Long businessLicenseSize,
         LocalDateTime businessLicenseUploadedAt,
@@ -154,7 +164,9 @@ public class OwnerApplication extends BaseTimeEntity {
         this.businessAddressNormalized = businessAddressNormalized;
         this.businessPhone = businessPhone;
         this.businessLicenseOriginalName = normalizeOriginalName(businessLicenseOriginalName);
-        this.businessLicenseObjectKey = businessLicenseObjectKey;
+        this.businessLicenseOriginalFilename = normalizeOriginalName(businessLicenseOriginalFilename);
+        this.businessLicenseStoredPath = normalizeStoredPath(businessLicenseStoredPath);
+        this.businessLicenseObjectKey = normalizeStoredPath(businessLicenseObjectKey);
         this.businessLicenseContentType = normalizeContentType(businessLicenseContentType);
         this.businessLicenseSize = businessLicenseSize == null ? 0L : businessLicenseSize;
         this.businessLicenseUploadedAt = businessLicenseUploadedAt == null ? LocalDateTime.now() : businessLicenseUploadedAt;
@@ -207,7 +219,11 @@ public class OwnerApplication extends BaseTimeEntity {
     }
 
     public String getBusinessLicenseOriginalFilename() {
-        return businessLicenseOriginalName;
+        return businessLicenseOriginalFilename;
+    }
+
+    public String getBusinessLicenseStoredPath() {
+        return businessLicenseStoredPath;
     }
 
     public String getBusinessLicenseObjectKey() {
@@ -348,6 +364,8 @@ public class OwnerApplication extends BaseTimeEntity {
         String businessPhone,
         String businessLicenseObjectKey,
         String businessLicenseOriginalName,
+        String businessLicenseOriginalFilename,
+        String businessLicenseStoredPath,
         String businessLicenseContentType,
         Long businessLicenseSize,
         LocalDateTime businessLicenseUploadedAt,
@@ -361,7 +379,9 @@ public class OwnerApplication extends BaseTimeEntity {
         this.businessAddressNormalized = businessAddressNormalized;
         this.businessPhone = businessPhone;
         this.businessLicenseOriginalName = normalizeOriginalName(businessLicenseOriginalName);
-        this.businessLicenseObjectKey = businessLicenseObjectKey;
+        this.businessLicenseOriginalFilename = normalizeOriginalName(businessLicenseOriginalFilename);
+        this.businessLicenseStoredPath = normalizeStoredPath(businessLicenseStoredPath);
+        this.businessLicenseObjectKey = normalizeStoredPath(businessLicenseObjectKey);
         this.businessLicenseContentType = normalizeContentType(businessLicenseContentType);
         this.businessLicenseSize = businessLicenseSize == null ? 0L : businessLicenseSize;
         this.businessLicenseUploadedAt = businessLicenseUploadedAt == null ? LocalDateTime.now() : businessLicenseUploadedAt;
@@ -419,7 +439,19 @@ public class OwnerApplication extends BaseTimeEntity {
         }
     }
 
+    private static String normalizeStoredPath(String storedPath) {
+        String candidate = storedPath == null ? "" : storedPath.trim();
+        return candidate.isBlank() ? "business-license" : candidate;
+    }
+
     private static String deriveOriginalName(String businessLicenseObjectKey) {
+        if (businessLicenseObjectKey == null || businessLicenseObjectKey.isBlank()) {
+            return "business-license";
+        }
+        return normalizeOriginalName(businessLicenseObjectKey);
+    }
+
+    private static String deriveOriginalFilename(String businessLicenseObjectKey) {
         if (businessLicenseObjectKey == null || businessLicenseObjectKey.isBlank()) {
             return "business-license";
         }
