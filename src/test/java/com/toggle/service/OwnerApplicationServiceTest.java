@@ -13,8 +13,9 @@ import com.toggle.dto.owner.OwnerApplicationRequest;
 import com.toggle.dto.owner.OwnerApplicationUpdateRequest;
 import com.toggle.dto.owner.OwnerStoreProfileUpdateRequest;
 import com.toggle.dto.owner.NationalTaxVerificationResult;
-import com.toggle.dto.kakao.KakaoKeywordSearchResponse;
+import com.toggle.dto.kakao.KakaoAddressSearchResponse;
 import com.toggle.global.exception.ApiException;
+import com.toggle.global.exception.KakaoAddressSearchException;
 import com.toggle.entity.ExternalSource;
 import com.toggle.entity.BusinessVerificationStatus;
 import com.toggle.entity.OwnerApplication;
@@ -108,7 +109,7 @@ class OwnerApplicationServiceTest {
         userMapRepository.deleteAll();
         userRepository.deleteAll();
 
-        given(kakaoPlaceClient.searchByKeyword(anyString())).willReturn(List.of());
+        given(kakaoPlaceClient.searchByAddress(anyString())).willReturn(new KakaoAddressSearchResponse(List.of()));
         given(nationalTaxServiceClient.verifyBusiness(anyString(), anyString(), anyString()))
             .willReturn(new NationalTaxVerificationResult(
                 true,
@@ -143,7 +144,7 @@ class OwnerApplicationServiceTest {
             "123-45-67890",
             "홍길동",
             LocalDate.of(2021, 3, 15),
-            "서울특별시 강남구 테헤란로 123",
+            " 경기   안양시 만안구 안양로 96 ",
             "02-1234-5678"
         );
 
@@ -188,7 +189,7 @@ class OwnerApplicationServiceTest {
             "123-45-67890",
             "홍길동",
             LocalDate.of(2021, 3, 15),
-            "서울특별시 강남구 테헤란로 123",
+            " 경기   안양시 만안구 안양로 96 ",
             "02-1234-5678"
         );
 
@@ -223,7 +224,7 @@ class OwnerApplicationServiceTest {
             "123-45-67890",
             "홍길동",
             LocalDate.of(2021, 3, 15),
-            "서울특별시 강남구 테헤란로 123",
+            " 경기   안양시 만안구 안양로 96 ",
             "02-1234-5678"
         );
 
@@ -253,7 +254,7 @@ class OwnerApplicationServiceTest {
             "123-45-67890",
             "홍길동",
             LocalDate.of(2021, 3, 15),
-            "서울특별시 강남구 테헤란로 123",
+            " 경기   안양시 만안구 안양로 96 ",
             "02-1234-5678"
         );
 
@@ -283,7 +284,7 @@ class OwnerApplicationServiceTest {
             "123-45-67890",
             "홍길동",
             LocalDate.of(2021, 3, 15),
-            "서울특별시 강남구 테헤란로 123",
+            " 경기   안양시 만안구 안양로 96 ",
             "02-1234-5678"
         );
 
@@ -313,7 +314,7 @@ class OwnerApplicationServiceTest {
             "123-45-67890",
             "홍길동",
             LocalDate.of(2021, 3, 15),
-            "서울특별시 강남구 테헤란로 123",
+            " 경기   안양시 만안구 안양로 96 ",
             "02-1234-5678"
         );
 
@@ -346,7 +347,7 @@ class OwnerApplicationServiceTest {
             "123-45-67890",
             "홍길동",
             LocalDate.of(2021, 3, 15),
-            "서울특별시 강남구 테헤란로 123",
+            " 경기   안양시 만안구 안양로 96 ",
             "02-1234-5678"
         );
 
@@ -382,7 +383,7 @@ class OwnerApplicationServiceTest {
             "123-45-67890",
             "홍길동",
             LocalDate.of(2021, 3, 15),
-            "서울특별시 강남구 테헤란로 123",
+            " 경기   안양시 만안구 안양로 96 ",
             "02-1234-5678"
         );
 
@@ -400,7 +401,7 @@ class OwnerApplicationServiceTest {
             "123-45-67890",
             "홍길동",
             LocalDate.of(2021, 3, 15),
-            "서울특별시 강남구 테헤란로 123",
+            " 경기   안양시 만안구 안양로 96 ",
             "02-1234-5678"
         );
 
@@ -443,7 +444,7 @@ class OwnerApplicationServiceTest {
             "123-45-67890",
             "홍길동",
             LocalDate.of(2021, 3, 15),
-            "서울특별시 강남구 테헤란로 123",
+            " 경기   안양시 만안구 안양로 96 ",
             "02-1234-5678"
         );
 
@@ -471,7 +472,7 @@ class OwnerApplicationServiceTest {
 
         given(s3FileService.uploadFile(org.mockito.ArgumentMatchers.any(), eq("business")))
             .willReturn(new S3FileService.StoredFile("https://sku-toggle.s3.ap-northeast-2.amazonaws.com/business/license.pdf", "business/license.pdf"));
-        given(kakaoPlaceClient.searchByKeyword(anyString()))
+        given(kakaoPlaceClient.searchByAddress(anyString()))
             .willThrow(new RuntimeException("kakao-exploded"));
 
         OwnerApplicationRequest request = new OwnerApplicationRequest(
@@ -479,7 +480,7 @@ class OwnerApplicationServiceTest {
             "123-45-67890",
             "홍길동",
             LocalDate.of(2021, 3, 15),
-            "서울특별시 강남구 테헤란로 123",
+            " 경기   안양시 만안구 안양로 96 ",
             "02-1234-5678"
         );
 
@@ -507,8 +508,8 @@ class OwnerApplicationServiceTest {
 
         given(s3FileService.uploadFile(org.mockito.ArgumentMatchers.any(), eq("business")))
             .willReturn(new S3FileService.StoredFile("https://sku-toggle.s3.ap-northeast-2.amazonaws.com/business/license.pdf", "business/license.pdf"));
-        given(kakaoPlaceClient.searchByKeyword("경기 안양시 만안구 안양로 96"))
-            .willReturn(List.of());
+        given(kakaoPlaceClient.searchByAddress("경기 안양시 만안구 안양로 96"))
+            .willReturn(new KakaoAddressSearchResponse(List.of()));
 
         OwnerApplicationRequest request = new OwnerApplicationRequest(
             "bbq",
@@ -526,8 +527,8 @@ class OwnerApplicationServiceTest {
             "pdf-bytes".getBytes(StandardCharsets.UTF_8)
         ))).doesNotThrowAnyException();
 
-        verify(kakaoPlaceClient).searchByKeyword("경기 안양시 만안구 안양로 96");
-        verify(kakaoPlaceClient, never()).searchByKeyword("bbq 경기 안양시 만안구 안양로 96");
+        verify(kakaoPlaceClient).searchByAddress("경기 안양시 만안구 안양로 96");
+        verify(kakaoPlaceClient, never()).searchByAddress("bbq 경기 안양시 만안구 안양로 96");
     }
 
     @Test
@@ -542,36 +543,36 @@ class OwnerApplicationServiceTest {
 
         given(s3FileService.uploadFile(org.mockito.ArgumentMatchers.any(), eq("business")))
             .willReturn(new S3FileService.StoredFile("https://sku-toggle.s3.ap-northeast-2.amazonaws.com/business/license.pdf", "business/license.pdf"));
-        given(kakaoPlaceClient.searchByKeyword("서울특별시 강남구 테헤란로 123"))
-            .willReturn(List.of(
-                new KakaoKeywordSearchResponse.KakaoPlaceDocument(
+        given(kakaoPlaceClient.searchByAddress("경기 안양시 만안구 안양로 96"))
+            .willReturn(new KakaoAddressSearchResponse(List.of(
+                new KakaoAddressSearchResponse.KakaoAddressDocument(
                     "place-1",
                     "BBQ CHICKEN GANGNAM",
-                    "서울특별시 강남구 테헤란로 123",
-                    "서울특별시 강남구 테헤란로 123",
+                    "경기도 안양시 만안구 안양로 96",
+                    "경기도 안양시 만안구 안양로 96",
                     "02-1111-1111",
                     "음식점 > 치킨",
                     new BigDecimal("127.0276100"),
                     new BigDecimal("37.4980950")
                 ),
-                new KakaoKeywordSearchResponse.KakaoPlaceDocument(
+                new KakaoAddressSearchResponse.KakaoAddressDocument(
                     "place-2",
                     "OTHER STORE",
-                    "서울특별시 강남구 테헤란로 123",
-                    "서울특별시 강남구 테헤란로 123",
+                    "경기도 안양시 만안구 안양로 96",
+                    "경기도 안양시 만안구 안양로 96",
                     "02-2222-2222",
                     "음식점 > 한식",
                     new BigDecimal("127.0276100"),
                     new BigDecimal("37.4980950")
                 )
-            ));
+            )));
 
         OwnerApplicationRequest request = new OwnerApplicationRequest(
             "bbq chicken gangnam",
             "123-45-67890",
             "홍길동",
             LocalDate.of(2021, 3, 15),
-            "서울특별시 강남구 테헤란로 123",
+            " 경기   안양시 만안구 안양로 96 ",
             "02-1234-5678"
         );
 
@@ -601,8 +602,8 @@ class OwnerApplicationServiceTest {
 
         given(s3FileService.uploadFile(org.mockito.ArgumentMatchers.any(), eq("business")))
             .willReturn(new S3FileService.StoredFile("https://sku-toggle.s3.ap-northeast-2.amazonaws.com/business/license.pdf", "business/license.pdf"));
-        given(kakaoPlaceClient.searchByKeyword("경기 안양시 만안구 안양로 96"))
-            .willThrow(new ApiException(org.springframework.http.HttpStatus.BAD_REQUEST, "KAKAO_LOCAL_BAD_REQUEST", "잘못된 요청"));
+        given(kakaoPlaceClient.searchByAddress("경기 안양시 만안구 안양로 96"))
+            .willThrow(new KakaoAddressSearchException("/v2/local/search/address.json", "경기 안양시 만안구 안양로 96", org.springframework.http.HttpStatus.BAD_REQUEST, "{\"msg\":\"bad request\"}", "KAKAO_BAD_REQUEST", new RuntimeException("bad request")));
 
         OwnerApplicationRequest request = new OwnerApplicationRequest(
             "bbq",
@@ -623,7 +624,44 @@ class OwnerApplicationServiceTest {
         OwnerApplication stored = ownerApplicationRepository.findAllByUserIdOrderByCreatedAtDesc(owner.getId()).getFirst();
         assertThat(stored.getMapVerificationStatus()).isEqualTo(MapVerificationStatus.FAILED);
         assertThat(mapVerificationHistoryRepository.findAllByRequestIdOrderByCreatedAtDesc(stored.getId()).getFirst().getFailureCode())
-            .isEqualTo("KAKAO_ADDRESS_SEARCH_FAILED");
+            .isEqualTo("KAKAO_BAD_REQUEST");
+    }
+
+    @Test
+    void createApplicationShouldFailWhenAddressSearchReturnsNoDocuments() {
+        User owner = userRepository.save(new User(
+            "owner-no-docs@toggle.com",
+            passwordEncoder.encode("password123!"),
+            "owner-no-docs",
+            UserRole.OWNER,
+            UserStatus.ACTIVE
+        ));
+
+        given(s3FileService.uploadFile(org.mockito.ArgumentMatchers.any(), eq("business")))
+            .willReturn(new S3FileService.StoredFile("https://sku-toggle.s3.ap-northeast-2.amazonaws.com/business/license.pdf", "business/license.pdf"));
+        given(kakaoPlaceClient.searchByAddress("경기 안양시 만안구 안양로 96"))
+            .willReturn(new KakaoAddressSearchResponse(List.of()));
+
+        OwnerApplicationRequest request = new OwnerApplicationRequest(
+            "bbq",
+            "123-45-67890",
+            "홍길동",
+            LocalDate.of(2021, 3, 15),
+            "경기 안양시 만안구 안양로 96",
+            "031-123-4567"
+        );
+
+        assertThatCode(() -> ownerApplicationService.createApplication(owner, request, new MockMultipartFile(
+            "businessLicenseFile",
+            "license.pdf",
+            "application/pdf",
+            "pdf-bytes".getBytes(StandardCharsets.UTF_8)
+        ))).doesNotThrowAnyException();
+
+        OwnerApplication stored = ownerApplicationRepository.findAllByUserIdOrderByCreatedAtDesc(owner.getId()).getFirst();
+        assertThat(stored.getMapVerificationStatus()).isEqualTo(MapVerificationStatus.FAILED);
+        assertThat(mapVerificationHistoryRepository.findAllByRequestIdOrderByCreatedAtDesc(stored.getId()).getFirst().getFailureCode())
+            .isEqualTo("KAKAO_NO_DOCUMENTS");
     }
 
     @Test
@@ -643,7 +681,7 @@ class OwnerApplicationServiceTest {
             "홍길동",
             LocalDate.of(2021, 3, 15),
             "서울특별시 강남구 테헤란로 123",
-            "서울특별시 강남구 테헤란로 123",
+            " 경기   안양시 만안구 안양로 96 ",
             "02-1234-5678",
             "business/license.pdf"
         ));
@@ -706,7 +744,7 @@ class OwnerApplicationServiceTest {
             "홍길동",
             LocalDate.of(2021, 3, 15),
             "서울특별시 강남구 테헤란로 123",
-            "서울특별시 강남구 테헤란로 123",
+            " 경기   안양시 만안구 안양로 96 ",
             "02-1234-5678",
             "business/license.pdf"
         ));

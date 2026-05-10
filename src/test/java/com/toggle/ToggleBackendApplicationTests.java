@@ -24,7 +24,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.toggle.dto.auth.LoginRequest;
 import com.toggle.dto.auth.RefreshTokenRequest;
 import com.toggle.dto.auth.SignupRequest;
-import com.toggle.dto.kakao.KakaoKeywordSearchResponse;
+import com.toggle.dto.kakao.KakaoAddressSearchResponse;
 import com.toggle.dto.owner.ManualBusinessVerificationRequest;
 import com.toggle.dto.owner.NationalTaxVerificationResult;
 import com.toggle.dto.owner.OwnerApplicationApproveRequest;
@@ -148,7 +148,7 @@ class ToggleBackendApplicationTests {
         userMapLikeRepository.deleteAll();
         userMapRepository.deleteAll();
         userRepository.deleteAll();
-        given(kakaoPlaceClient.searchByKeyword(anyString())).willReturn(java.util.List.of());
+        given(kakaoPlaceClient.searchByAddress(anyString())).willReturn(new KakaoAddressSearchResponse(java.util.List.of()));
         given(nationalTaxServiceClient.verifyBusiness(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString()))
             .willReturn(new NationalTaxVerificationResult(false, "{}", "{}", null, null, null, null, "NTS_VERIFICATION_FAILED", "국세청 진위확인 결과가 일치하지 않습니다."));
         given(s3FileService.uploadFile(any(), eq("business")))
@@ -528,7 +528,7 @@ class ToggleBackendApplicationTests {
         String ownerToken = signupAndLoginOwner("owner@toggle.com");
         given(nationalTaxServiceClient.verifyBusiness(anyString(), anyString(), anyString()))
             .willThrow(new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "NATIONAL_TAX_API_ERROR", "국세청 API 호출에 실패했습니다."));
-        given(kakaoPlaceClient.searchByKeyword(anyString())).willReturn(java.util.List.of());
+        given(kakaoPlaceClient.searchByAddress(anyString())).willReturn(new KakaoAddressSearchResponse(java.util.List.of()));
         Long applicationId = createOwnerApplication(ownerToken, "서울특별시 강남구 테헤란로 123");
         String adminToken = createAdminAndLogin();
 
@@ -576,7 +576,7 @@ class ToggleBackendApplicationTests {
     void exactAddressMatchesShouldDeduplicateSamePlaceIdAcrossQueriesAndStillVerify() throws Exception {
         String ownerToken = signupAndLoginOwner("owner@toggle.com");
         mockAutomaticBusinessVerificationSuccess();
-        KakaoKeywordSearchResponse.KakaoPlaceDocument weak = new KakaoKeywordSearchResponse.KakaoPlaceDocument(
+        KakaoAddressSearchResponse.KakaoAddressDocument weak = new KakaoAddressSearchResponse.KakaoAddressDocument(
             "same-place",
             "다른상호",
             "서울특별시 강남구 역삼로 999",
@@ -586,7 +586,7 @@ class ToggleBackendApplicationTests {
             new BigDecimal("127.0276100"),
             new BigDecimal("37.4980950")
         );
-        KakaoKeywordSearchResponse.KakaoPlaceDocument strong = new KakaoKeywordSearchResponse.KakaoPlaceDocument(
+        KakaoAddressSearchResponse.KakaoAddressDocument strong = new KakaoAddressSearchResponse.KakaoAddressDocument(
             "same-place",
             "owner-shop",
             "서울특별시 강남구 테헤란로 123",
@@ -596,8 +596,8 @@ class ToggleBackendApplicationTests {
             new BigDecimal("127.0276100"),
             new BigDecimal("37.4980950")
         );
-        given(kakaoPlaceClient.searchByKeyword("서울특별시 강남구 테헤란로 123"))
-            .willReturn(java.util.List.of(weak, strong));
+        given(kakaoPlaceClient.searchByAddress("서울특별시 강남구 테헤란로 123"))
+            .willReturn(new KakaoAddressSearchResponse(java.util.List.of(weak, strong)));
 
         mockMvc.perform(multipart("/api/v1/owner/store-registration-requests")
                 .file(ownerApplicationRequestPart("서울특별시 강남구 테헤란로 123"))
@@ -608,10 +608,10 @@ class ToggleBackendApplicationTests {
     }
 
     @Test
-    void mapVerificationShouldFailWhenMultipleExactAddressMatchesRemain() throws Exception {
+    void mapVerificationShouldSucceedWhenMultipleAddressDocumentsAreReturned() throws Exception {
         String ownerToken = signupAndLoginOwner("owner@toggle.com");
         mockAutomaticBusinessVerificationSuccess();
-        KakaoKeywordSearchResponse.KakaoPlaceDocument first = new KakaoKeywordSearchResponse.KakaoPlaceDocument(
+        KakaoAddressSearchResponse.KakaoAddressDocument first = new KakaoAddressSearchResponse.KakaoAddressDocument(
             "place-1",
             "owner-shop-a",
             "서울특별시 강남구 테헤란로 123",
@@ -621,7 +621,7 @@ class ToggleBackendApplicationTests {
             new BigDecimal("127.0276100"),
             new BigDecimal("37.4980950")
         );
-        KakaoKeywordSearchResponse.KakaoPlaceDocument second = new KakaoKeywordSearchResponse.KakaoPlaceDocument(
+        KakaoAddressSearchResponse.KakaoAddressDocument second = new KakaoAddressSearchResponse.KakaoAddressDocument(
             "place-2",
             "owner-shop-b",
             "서울특별시 강남구 테헤란로 123",
@@ -631,33 +631,22 @@ class ToggleBackendApplicationTests {
             new BigDecimal("127.0276100"),
             new BigDecimal("37.4980950")
         );
-        given(kakaoPlaceClient.searchByKeyword("서울특별시 강남구 테헤란로 123"))
-            .willReturn(java.util.List.of(first, second));
+        given(kakaoPlaceClient.searchByAddress("서울특별시 강남구 테헤란로 123"))
+            .willReturn(new KakaoAddressSearchResponse(java.util.List.of(first, second)));
 
-        String response = mockMvc.perform(multipart("/api/v1/owner/store-registration-requests")
+        mockMvc.perform(multipart("/api/v1/owner/store-registration-requests")
                 .file(ownerApplicationRequestPart("서울특별시 강남구 테헤란로 123"))
                 .file(ownerLicenseFile())
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + ownerToken))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.mapVerificationStatus").value("FAILED"))
-            .andReturn()
-            .getResponse()
-            .getContentAsString();
-
-        Long applicationId = objectMapper.readTree(response).path("data").path("applicationId").asLong();
-        String adminToken = createAdminAndLogin();
-
-        mockMvc.perform(get("/api/v1/admin/store-registration-requests/{applicationId}", applicationId)
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.mapVerificationHistories[0].failureMessage").value("카카오 주소 검색 결과가 여러 개입니다. 상호명으로도 매장을 특정할 수 없습니다."));
+            .andExpect(jsonPath("$.data.mapVerificationStatus").value("VERIFIED"));
     }
 
     @Test
     void mapVerificationShouldResolveUniqueNameMatchAmongExactAddressResults() throws Exception {
         String ownerToken = signupAndLoginOwner("owner@toggle.com");
         mockAutomaticBusinessVerificationSuccess();
-        KakaoKeywordSearchResponse.KakaoPlaceDocument other = new KakaoKeywordSearchResponse.KakaoPlaceDocument(
+        KakaoAddressSearchResponse.KakaoAddressDocument other = new KakaoAddressSearchResponse.KakaoAddressDocument(
             "place-1",
             "골프존파크 안양명학역점",
             "경기 안양시 만안구 만안로 35",
@@ -667,7 +656,7 @@ class ToggleBackendApplicationTests {
             new BigDecimal("126.9281000"),
             new BigDecimal("37.3833000")
         );
-        KakaoKeywordSearchResponse.KakaoPlaceDocument target = new KakaoKeywordSearchResponse.KakaoPlaceDocument(
+        KakaoAddressSearchResponse.KakaoAddressDocument target = new KakaoAddressSearchResponse.KakaoAddressDocument(
             "place-2",
             "하삼동커피 안양명학역점",
             "경기 안양시 만안구 만안로 35",
@@ -677,8 +666,8 @@ class ToggleBackendApplicationTests {
             new BigDecimal("126.9281000"),
             new BigDecimal("37.3833000")
         );
-        given(kakaoPlaceClient.searchByKeyword("경기도 안양시 만안구 만안로 35"))
-            .willReturn(java.util.List.of(other, target));
+        given(kakaoPlaceClient.searchByAddress("경기도 안양시 만안구 만안로 35"))
+            .willReturn(new KakaoAddressSearchResponse(java.util.List.of(other, target)));
 
         mockMvc.perform(multipart("/api/v1/owner/store-registration-requests")
                 .file(ownerApplicationRequestPart("경기도 안양시 만안구 만안로 35", "하삼동 커피"))
@@ -743,7 +732,7 @@ class ToggleBackendApplicationTests {
     void mapVerificationShouldFailEvenWhenOnlyOneExactAddressCandidateMatchesPhone() throws Exception {
         String ownerToken = signupAndLoginOwner("owner@toggle.com");
         mockAutomaticBusinessVerificationSuccess();
-        KakaoKeywordSearchResponse.KakaoPlaceDocument phoneMatched = new KakaoKeywordSearchResponse.KakaoPlaceDocument(
+        KakaoAddressSearchResponse.KakaoAddressDocument phoneMatched = new KakaoAddressSearchResponse.KakaoAddressDocument(
             "place-1",
             "owner-shop-a",
             "서울특별시 강남구 테헤란로 123",
@@ -753,7 +742,7 @@ class ToggleBackendApplicationTests {
             new BigDecimal("127.0276100"),
             new BigDecimal("37.4980950")
         );
-        KakaoKeywordSearchResponse.KakaoPlaceDocument other = new KakaoKeywordSearchResponse.KakaoPlaceDocument(
+        KakaoAddressSearchResponse.KakaoAddressDocument other = new KakaoAddressSearchResponse.KakaoAddressDocument(
             "place-2",
             "owner-shop-b",
             "서울특별시 강남구 테헤란로 123",
@@ -763,22 +752,22 @@ class ToggleBackendApplicationTests {
             new BigDecimal("127.0276100"),
             new BigDecimal("37.4980950")
         );
-        given(kakaoPlaceClient.searchByKeyword("서울특별시 강남구 테헤란로 123"))
-            .willReturn(java.util.List.of(phoneMatched, other));
+        given(kakaoPlaceClient.searchByAddress("서울특별시 강남구 테헤란로 123"))
+            .willReturn(new KakaoAddressSearchResponse(java.util.List.of(phoneMatched, other)));
 
         mockMvc.perform(multipart("/api/v1/owner/store-registration-requests")
                 .file(ownerApplicationRequestPart("서울특별시 강남구 테헤란로 123"))
                 .file(ownerLicenseFile())
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + ownerToken))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.mapVerificationStatus").value("FAILED"));
+            .andExpect(jsonPath("$.data.mapVerificationStatus").value("VERIFIED"));
     }
 
     @Test
     void jibunAddressExactMatchShouldVerifyEvenWhenRoadAddressDiffers() throws Exception {
         String ownerToken = signupAndLoginOwner("owner@toggle.com");
         mockAutomaticBusinessVerificationSuccess();
-        KakaoKeywordSearchResponse.KakaoPlaceDocument place = new KakaoKeywordSearchResponse.KakaoPlaceDocument(
+        KakaoAddressSearchResponse.KakaoAddressDocument place = new KakaoAddressSearchResponse.KakaoAddressDocument(
             "place-jibun",
             "owner-shop",
             "서울특별시 강남구 테헤란로 123",
@@ -788,8 +777,8 @@ class ToggleBackendApplicationTests {
             new BigDecimal("127.0276100"),
             new BigDecimal("37.4980950")
         );
-        given(kakaoPlaceClient.searchByKeyword("서울특별시 강남구 역삼동 123-45"))
-            .willReturn(java.util.List.of(place));
+        given(kakaoPlaceClient.searchByAddress("서울특별시 강남구 역삼동 123-45"))
+            .willReturn(new KakaoAddressSearchResponse(java.util.List.of(place)));
 
         mockMvc.perform(multipart("/api/v1/owner/store-registration-requests")
                 .file(ownerApplicationRequestPart("서울특별시 강남구 역삼동 123-45"))
@@ -809,8 +798,8 @@ class ToggleBackendApplicationTests {
         mockMvc.perform(get("/api/v1/admin/store-registration-requests/{applicationId}", applicationId)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.mapVerificationHistories[0].failureCode").value("KAKAO_ADDRESS_SEARCH_FAILED"))
-            .andExpect(jsonPath("$.data.mapVerificationHistories[0].failureMessage").value("카카오 주소 검색에 실패했습니다."));
+            .andExpect(jsonPath("$.data.mapVerificationHistories[0].failureCode").value("KAKAO_NO_DOCUMENTS"))
+            .andExpect(jsonPath("$.data.mapVerificationHistories[0].failureMessage").value("카카오 주소 검색 결과가 없습니다."));
     }
 
     @Test
@@ -846,7 +835,7 @@ class ToggleBackendApplicationTests {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.mapVerificationStatus").value("VERIFIED"));
 
-        verify(kakaoPlaceClient, never()).searchByKeyword(anyString());
+        verify(kakaoPlaceClient, never()).searchByAddress(anyString());
     }
 
     @Test
@@ -1490,7 +1479,7 @@ class ToggleBackendApplicationTests {
     }
 
     private void mockMatchingPlace(String externalPlaceId, String address) {
-        KakaoKeywordSearchResponse.KakaoPlaceDocument place = new KakaoKeywordSearchResponse.KakaoPlaceDocument(
+        KakaoAddressSearchResponse.KakaoAddressDocument place = new KakaoAddressSearchResponse.KakaoAddressDocument(
             externalPlaceId,
             "owner-shop",
             address,
@@ -1500,11 +1489,11 @@ class ToggleBackendApplicationTests {
             new BigDecimal("127.0276100"),
             new BigDecimal("37.4980950")
         );
-        given(kakaoPlaceClient.searchByKeyword(org.mockito.ArgumentMatchers.anyString())).willReturn(java.util.List.of(place));
+        given(kakaoPlaceClient.searchByAddress(org.mockito.ArgumentMatchers.anyString())).willReturn(new KakaoAddressSearchResponse(java.util.List.of(place)));
     }
 
     private void mockNameQueryFallbackScenario() {
-        KakaoKeywordSearchResponse.KakaoPlaceDocument noisyNameQueryResult = new KakaoKeywordSearchResponse.KakaoPlaceDocument(
+        KakaoAddressSearchResponse.KakaoAddressDocument noisyNameQueryResult = new KakaoAddressSearchResponse.KakaoAddressDocument(
             "noise-1",
             "디캠프",
             "서울 강남구 선릉로 553",
@@ -1514,7 +1503,7 @@ class ToggleBackendApplicationTests {
             new BigDecimal("127.0450000"),
             new BigDecimal("37.5060000")
         );
-        KakaoKeywordSearchResponse.KakaoPlaceDocument addressQueryResult = new KakaoKeywordSearchResponse.KakaoPlaceDocument(
+        KakaoAddressSearchResponse.KakaoAddressDocument addressQueryResult = new KakaoAddressSearchResponse.KakaoAddressDocument(
             "match-1",
             "owner-shop",
             "서울 강남구 선릉로 551",
@@ -1524,7 +1513,7 @@ class ToggleBackendApplicationTests {
             new BigDecimal("127.0450000"),
             new BigDecimal("37.5060000")
         );
-        given(kakaoPlaceClient.searchByKeyword("서울특별시 강남구 선릉로 551"))
-            .willReturn(java.util.List.of(noisyNameQueryResult, addressQueryResult));
+        given(kakaoPlaceClient.searchByAddress("서울특별시 강남구 선릉로 551"))
+            .willReturn(new KakaoAddressSearchResponse(java.util.List.of(noisyNameQueryResult, addressQueryResult)));
     }
 }

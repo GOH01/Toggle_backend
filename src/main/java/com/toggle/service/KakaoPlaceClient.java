@@ -1,11 +1,13 @@
 package com.toggle.service;
 
 import com.toggle.dto.kakao.KakaoCategorySearchRequest;
+import com.toggle.dto.kakao.KakaoAddressSearchResponse;
 import com.toggle.dto.kakao.KakaoKeywordSearchRequest;
 import com.toggle.dto.kakao.KakaoKeywordSearchResponse;
 import com.toggle.dto.kakao.KakaoNearbySearchRequest;
 import com.toggle.dto.kakao.KakaoPlaceSearchResponse;
 import com.toggle.global.exception.ApiException;
+import com.toggle.global.exception.KakaoAddressSearchException;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -41,6 +43,20 @@ public class KakaoPlaceClient {
         );
 
         return body == null || body.documents() == null ? List.of() : body.documents();
+    }
+
+    public KakaoAddressSearchResponse searchByAddress(String query) {
+        if (!StringUtils.hasText(query)) {
+            return new KakaoAddressSearchResponse(List.of());
+        }
+
+        KakaoAddressSearchResponse body = exchangeAddress(
+            "/v2/local/search/address.json",
+            Map.of("query", query.trim()),
+            KakaoAddressSearchResponse.class
+        );
+
+        return body == null || body.documents() == null ? new KakaoAddressSearchResponse(List.of()) : body;
     }
 
     public KakaoPlaceSearchResponse searchKeyword(KakaoKeywordSearchRequest request) {
@@ -109,6 +125,41 @@ public class KakaoPlaceClient {
         }
     }
 
+    private <T> T exchangeAddress(String path, Map<String, Object> queryParams, Class<T> responseType) {
+        try {
+            String url = buildUrl(path, queryParams);
+            ResponseEntity<T> response = kakaoRestTemplate.exchange(
+                url,
+                HttpMethod.GET,
+                HttpEntity.EMPTY,
+                responseType
+            );
+            return response.getBody();
+        } catch (HttpStatusCodeException ex) {
+            HttpStatus status = HttpStatus.resolve(ex.getStatusCode().value());
+            if (status == null) {
+                status = HttpStatus.SERVICE_UNAVAILABLE;
+            }
+            throw new KakaoAddressSearchException(
+                path,
+                String.valueOf(queryParams.get("query")),
+                status,
+                ex.getResponseBodyAsString(),
+                mapAddressFailureReasonCode(ex),
+                ex
+            );
+        } catch (Exception ex) {
+            throw new KakaoAddressSearchException(
+                path,
+                String.valueOf(queryParams.get("query")),
+                HttpStatus.SERVICE_UNAVAILABLE,
+                null,
+                "KAKAO_RESPONSE_PARSE_FAILED",
+                ex
+            );
+        }
+    }
+
     private String buildUrl(String path, Map<String, Object> queryParams) {
         UriComponentsBuilder builder = UriComponentsBuilder.fromPath(path);
         queryParams.forEach((key, value) -> {
@@ -145,6 +196,17 @@ public class KakaoPlaceClient {
         }
 
         return new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "KAKAO_LOCAL_API_ERROR", "카카오 장소 검색 API가 일시적으로 응답하지 않습니다.");
+    }
+
+    private String mapAddressFailureReasonCode(HttpStatusCodeException ex) {
+        int statusCode = ex.getStatusCode().value();
+        if (statusCode == 429) {
+            return "KAKAO_TOO_MANY_REQUESTS";
+        }
+        if (ex.getStatusCode().is4xxClientError()) {
+            return "KAKAO_BAD_REQUEST";
+        }
+        return "KAKAO_API_ERROR";
     }
 
     private String normalizeOptional(String value) {
