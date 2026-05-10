@@ -643,7 +643,7 @@ class ToggleBackendApplicationTests {
         mockMvc.perform(get("/api/v1/admin/store-registration-requests/{applicationId}", applicationId)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.mapVerificationHistories[0].failureMessage").value("실영업주소가 정확히 일치하는 카카오 매장이 여러 개입니다. 상호명까지 확인해도 자동 확정할 수 없습니다."));
+            .andExpect(jsonPath("$.data.mapVerificationHistories[0].failureMessage").value("카카오 주소 검색 결과가 여러 개입니다. 주소만으로 매장을 특정할 수 없습니다."));
     }
 
     @Test
@@ -678,7 +678,7 @@ class ToggleBackendApplicationTests {
                 .file(ownerLicenseFile())
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + ownerToken))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.mapVerificationStatus").value("VERIFIED"));
+            .andExpect(jsonPath("$.data.mapVerificationStatus").value("FAILED"));
     }
 
     @Test

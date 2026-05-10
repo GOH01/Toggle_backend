@@ -678,16 +678,15 @@ public class OwnerApplicationService {
                 return;
             }
 
-            List<Candidate> narrowedCandidates = narrowCandidatesByStoreName(application.getStoreName(), candidates);
-            if (narrowedCandidates.size() > 1) {
-                Candidate ambiguousCandidate = narrowedCandidates.get(0);
+            if (candidates.size() > 1) {
+                Candidate ambiguousCandidate = candidates.get(0);
                 application.markMapVerificationFailed();
                 mapVerificationHistoryRepository.save(new MapVerificationHistory(
                     application,
                     ambiguousCandidate.queryText(),
                     ambiguousCandidate.queryType(),
                     VerificationRecordStatus.FAILED,
-                    narrowedCandidates.size(),
+                    candidates.size(),
                     ambiguousCandidate.externalPlaceId(),
                     ambiguousCandidate.storeName(),
                     ambiguousCandidate.roadAddress(),
@@ -696,16 +695,16 @@ public class OwnerApplicationService {
                     ambiguousCandidate.categoryName(),
                     ambiguousCandidate.latitude() == null ? null : ambiguousCandidate.latitude().toPlainString(),
                     ambiguousCandidate.longitude() == null ? null : ambiguousCandidate.longitude().toPlainString(),
-                    safeJson(narrowedCandidates),
+                    safeJson(candidates),
                     null,
                     "KAKAO_EXACT_ADDRESS_AMBIGUOUS",
-                    "실영업주소가 정확히 일치하는 카카오 매장이 여러 개입니다. 상호명까지 확인해도 자동 확정할 수 없습니다.",
+                    "카카오 주소 검색 결과가 여러 개입니다. 주소만으로 매장을 특정할 수 없습니다.",
                     LocalDateTime.now()
                 ));
                 return;
             }
 
-            Candidate bestCandidate = narrowedCandidates.get(0);
+            Candidate bestCandidate = candidates.get(0);
             Optional<Store> existingStore = storeRepository.findByExternalSourceAndExternalPlaceIdAndDeletedAtIsNull(
                 ExternalSource.KAKAO,
                 bestCandidate.externalPlaceId()
@@ -717,7 +716,7 @@ public class OwnerApplicationService {
                     bestCandidate.queryText(),
                     bestCandidate.queryType(),
                     VerificationRecordStatus.FAILED,
-                    narrowedCandidates.size(),
+                    candidates.size(),
                     bestCandidate.externalPlaceId(),
                     bestCandidate.storeName(),
                     bestCandidate.roadAddress(),
@@ -726,7 +725,7 @@ public class OwnerApplicationService {
                     bestCandidate.categoryName(),
                     bestCandidate.latitude() == null ? null : bestCandidate.latitude().toPlainString(),
                     bestCandidate.longitude() == null ? null : bestCandidate.longitude().toPlainString(),
-                    safeJson(narrowedCandidates),
+                    safeJson(candidates),
                     existingStore.get(),
                     "KAKAO_PLACE_ALREADY_REGISTERED",
                     "이미 다른 점주가 등록한 매장입니다.",
@@ -758,7 +757,7 @@ public class OwnerApplicationService {
                 bestCandidate.queryText(),
                 bestCandidate.queryType(),
                 VerificationRecordStatus.SUCCESS,
-                narrowedCandidates.size(),
+                candidates.size(),
                 bestCandidate.externalPlaceId(),
                 bestCandidate.storeName(),
                 bestCandidate.roadAddress(),
@@ -767,7 +766,7 @@ public class OwnerApplicationService {
                 bestCandidate.categoryName(),
                 bestCandidate.latitude() == null ? null : bestCandidate.latitude().toPlainString(),
                 bestCandidate.longitude() == null ? null : bestCandidate.longitude().toPlainString(),
-                safeJson(narrowedCandidates),
+                safeJson(candidates),
                 verifiedStore,
                 null,
                 null,
@@ -850,40 +849,6 @@ public class OwnerApplicationService {
             .filter(Candidate::addressExact)
             .sorted(Comparator.comparing(Candidate::phoneExact).reversed())
             .toList();
-    }
-
-    private List<Candidate> narrowCandidatesByStoreName(String requestedStoreName, List<Candidate> candidates) {
-        if (candidates.size() <= 1) {
-            return candidates;
-        }
-
-        String normalizedRequestedStoreName = normalizeStoreName(requestedStoreName);
-        if (normalizedRequestedStoreName.isBlank()) {
-            return candidates;
-        }
-
-        List<Candidate> exactNameCandidates = candidates.stream()
-            .filter(candidate -> normalizeStoreName(candidate.storeName()).equals(normalizedRequestedStoreName))
-            .toList();
-        if (exactNameCandidates.size() == 1) {
-            return exactNameCandidates;
-        }
-        if (!exactNameCandidates.isEmpty()) {
-            return exactNameCandidates;
-        }
-
-        List<Candidate> partialNameCandidates = candidates.stream()
-            .filter(candidate -> {
-                String normalizedCandidateStoreName = normalizeStoreName(candidate.storeName());
-                return normalizedCandidateStoreName.contains(normalizedRequestedStoreName)
-                    || normalizedRequestedStoreName.contains(normalizedCandidateStoreName);
-            })
-            .toList();
-        if (!partialNameCandidates.isEmpty()) {
-            return partialNameCandidates;
-        }
-
-        return candidates;
     }
 
     private Candidate toExactMatchCandidate(
@@ -981,16 +946,6 @@ public class OwnerApplicationService {
             return "";
         }
         return contentType.trim().toLowerCase(Locale.ROOT);
-    }
-
-    private String normalizeStoreName(String rawStoreName) {
-        if (rawStoreName == null) {
-            return "";
-        }
-        return rawStoreName
-            .trim()
-            .toLowerCase(Locale.ROOT)
-            .replaceAll("[^0-9a-z가-힣]", "");
     }
 
     private boolean isSameVerifiedStore(OwnerApplication application, Store store) {
