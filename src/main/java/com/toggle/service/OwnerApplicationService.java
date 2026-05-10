@@ -359,28 +359,29 @@ public class OwnerApplicationService {
         OwnerApplication application = getApplication(applicationId);
         ensureReviewable(application);
 
-        if (!application.isApprovalReady()) {
-            throw new ApiException(HttpStatus.CONFLICT, "STORE_REGISTRATION_NOT_APPROVABLE", "사업자 검증과 카카오맵 검증이 모두 완료되어야 승인할 수 있습니다.");
-        }
-        if (ownerStoreLinkRepository.existsByStoreIdAndStoreDeletedAtIsNull(application.getVerifiedStore().getId())) {
+        Store verifiedStore = application.getVerifiedStore();
+        if (verifiedStore != null && ownerStoreLinkRepository.existsByStoreIdAndStoreDeletedAtIsNull(verifiedStore.getId())) {
             throw new ApiException(HttpStatus.CONFLICT, "STORE_ALREADY_LINKED", "이미 다른 점주에게 연결된 매장입니다.");
         }
 
         application.approve(adminUser, LocalDateTime.now());
-        OwnerStoreLink link = ownerStoreLinkRepository.save(new OwnerStoreLink(
-            application.getUser(),
-            application.getVerifiedStore(),
-            application,
-            OwnerStoreMatchStatus.MANUALLY_CONFIRMED,
-            100,
-            "business_verified_and_map_verified"
-        ));
+        OwnerStoreLink link = null;
+        if (verifiedStore != null) {
+            link = ownerStoreLinkRepository.save(new OwnerStoreLink(
+                application.getUser(),
+                verifiedStore,
+                application,
+                OwnerStoreMatchStatus.MANUALLY_CONFIRMED,
+                100,
+                "business_verified_and_map_verified"
+            ));
+        }
         adminReviewLogRepository.save(new AdminReviewLog(
             application,
             adminUser,
             AdminReviewActionType.APPROVE,
             null,
-            "{\"linkedStoreId\":" + link.getStore().getId() + "}"
+            "{\"linkedStoreId\":" + (link == null ? "null" : link.getStore().getId()) + "}"
         ));
 
         return new OwnerApplicationReviewResponse(
@@ -389,8 +390,8 @@ public class OwnerApplicationService {
             application.getReviewStatus().name(),
             application.getBusinessVerificationStatus().name(),
             application.getMapVerificationStatus().name(),
-            application.getVerifiedStore().getId(),
-            link.getStore().getId(),
+            verifiedStore == null ? null : verifiedStore.getId(),
+            link == null ? null : link.getStore().getId(),
             application.getReviewedAt(),
             application.getRejectReason()
         );

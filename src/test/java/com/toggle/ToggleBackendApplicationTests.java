@@ -1,5 +1,6 @@
 package com.toggle;
 
+import static org.hamcrest.Matchers.nullValue;
 import static org.hamcrest.Matchers.startsWith;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -523,9 +524,11 @@ class ToggleBackendApplicationTests {
     }
 
     @Test
-    void adminShouldNotApproveWhenMapVerificationFailed() throws Exception {
+    void adminShouldApproveEvenWhenBusinessAndMapVerificationFailed() throws Exception {
         String ownerToken = signupAndLoginOwner("owner@toggle.com");
-        mockAutomaticBusinessVerificationSuccess();
+        given(nationalTaxServiceClient.verifyBusiness(anyString(), anyString(), anyString()))
+            .willThrow(new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "NATIONAL_TAX_API_ERROR", "국세청 API 호출에 실패했습니다."));
+        given(kakaoPlaceClient.searchByKeyword(anyString())).willReturn(java.util.List.of());
         Long applicationId = createOwnerApplication(ownerToken, "서울특별시 강남구 테헤란로 123");
         String adminToken = createAdminAndLogin();
 
@@ -533,8 +536,12 @@ class ToggleBackendApplicationTests {
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(new OwnerApplicationApproveRequest(true))))
-            .andExpect(status().isConflict())
-            .andExpect(jsonPath("$.error.code").value("STORE_REGISTRATION_NOT_APPROVABLE"));
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.requestStatus").value("APPROVED"))
+            .andExpect(jsonPath("$.data.businessVerificationStatus").value("AUTO_VERIFICATION_UNAVAILABLE"))
+            .andExpect(jsonPath("$.data.mapVerificationStatus").value("FAILED"))
+            .andExpect(jsonPath("$.data.verifiedStoreId").value(nullValue()))
+            .andExpect(jsonPath("$.data.linkedStoreId").value(nullValue()));
     }
 
     @Test
