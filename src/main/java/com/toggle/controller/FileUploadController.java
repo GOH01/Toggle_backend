@@ -27,22 +27,22 @@ public class FileUploadController {
 
     @PostMapping(value = "/business", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ApiResponse<FileUploadResponse> uploadBusinessFile(@RequestPart("file") MultipartFile file) {
-        return ApiResponse.ok(toResponse(s3FileService.uploadFile(file, "business")));
+        return ApiResponse.ok(toResponse(s3FileService.uploadFile(file, "business"), file.getContentType()));
     }
 
     @PostMapping(value = "/menu", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ApiResponse<FileUploadResponse> uploadMenuFile(@RequestPart("file") MultipartFile file) {
-        return ApiResponse.ok(toResponse(s3FileService.uploadFile(file, "menu")));
+        return ApiResponse.ok(toResponse(s3FileService.uploadFile(file, "menu"), file.getContentType()));
     }
 
     @PostMapping(value = "/review", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ApiResponse<FileUploadResponse> uploadReviewFile(@RequestPart("file") MultipartFile file) {
-        return ApiResponse.ok(toResponse(s3FileService.uploadFile(file, "review")));
+        return ApiResponse.ok(toResponse(s3FileService.uploadFile(file, "review"), file.getContentType()));
     }
 
     @PostMapping(value = "/store", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ApiResponse<FileUploadResponse> uploadStoreFile(@RequestPart("file") MultipartFile file) {
-        return ApiResponse.ok(toResponse(s3FileService.uploadFile(file, "store")));
+        return ApiResponse.ok(toResponse(s3FileService.uploadFile(file, "store"), file.getContentType()));
     }
 
     @GetMapping("/view")
@@ -52,7 +52,7 @@ public class FileUploadController {
             .build();
     }
 
-    private FileUploadResponse toResponse(S3FileService.StoredFile storedFile) {
-        return new FileUploadResponse(storedFile.url(), storedFile.key());
+    private FileUploadResponse toResponse(S3FileService.StoredFile storedFile, String contentType) {
+        return new FileUploadResponse(storedFile.url(), storedFile.key(), contentType);
     }
 }

@@ -162,6 +162,9 @@ public class S3FileService {
         }
 
         String contentType = normalizeContentType(file.getContentType());
+        if (contentType.isBlank() || "application/octet-stream".equals(contentType)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_FILE_CONTENT_TYPE", policy.displayName() + " 파일의 Content-Type을 확인할 수 없습니다.");
+        }
         if (!policy.allowedContentTypes().contains(contentType)) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_FILE_TYPE", policy.displayName() + "에 허용되지 않는 파일 형식입니다.");
         }

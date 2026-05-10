@@ -13,6 +13,7 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.Locale;
 
 @Entity
 @Table(name = "owner_applications")
@@ -47,8 +48,11 @@ public class OwnerApplication extends BaseTimeEntity {
     @Column(nullable = false, length = 30)
     private String businessPhone;
 
-    @Column(nullable = false)
+    @Column(name = "business_license_object_key", nullable = false, length = 1000)
     private String businessLicenseObjectKey;
+
+    @Column(nullable = false, length = 100)
+    private String businessLicenseContentType;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
@@ -94,6 +98,32 @@ public class OwnerApplication extends BaseTimeEntity {
         String businessPhone,
         String businessLicenseObjectKey
     ) {
+        this(
+            user,
+            storeName,
+            businessNumber,
+            representativeName,
+            businessOpenDate,
+            businessAddressRaw,
+            businessAddressNormalized,
+            businessPhone,
+            businessLicenseObjectKey,
+            "application/octet-stream"
+        );
+    }
+
+    public OwnerApplication(
+        User user,
+        String storeName,
+        String businessNumber,
+        String representativeName,
+        LocalDate businessOpenDate,
+        String businessAddressRaw,
+        String businessAddressNormalized,
+        String businessPhone,
+        String businessLicenseObjectKey,
+        String businessLicenseContentType
+    ) {
         this.user = user;
         this.storeName = storeName;
         this.businessNumber = businessNumber;
@@ -103,6 +133,7 @@ public class OwnerApplication extends BaseTimeEntity {
         this.businessAddressNormalized = businessAddressNormalized;
         this.businessPhone = businessPhone;
         this.businessLicenseObjectKey = businessLicenseObjectKey;
+        this.businessLicenseContentType = normalizeContentType(businessLicenseContentType);
         this.reviewStatus = OwnerApplicationReviewStatus.PENDING;
         this.businessVerificationStatus = BusinessVerificationStatus.NOT_STARTED;
         this.mapVerificationStatus = MapVerificationStatus.NOT_STARTED;
@@ -148,6 +179,10 @@ public class OwnerApplication extends BaseTimeEntity {
         return businessLicenseObjectKey;
     }
 
+    public String getBusinessLicenseContentType() {
+        return businessLicenseContentType;
+    }
+
     public OwnerApplicationReviewStatus getReviewStatus() {
         return reviewStatus;
     }
@@ -182,27 +217,6 @@ public class OwnerApplication extends BaseTimeEntity {
 
     public String getRejectReason() {
         return rejectReason;
-    }
-
-    public void updateOwnerDraft(
-        String storeName,
-        String businessNumber,
-        String representativeName,
-        LocalDate businessOpenDate,
-        String businessAddressRaw,
-        String businessAddressNormalized,
-        String businessPhone,
-        String businessLicenseObjectKey
-    ) {
-        this.storeName = storeName;
-        this.businessNumber = businessNumber;
-        this.representativeName = representativeName;
-        this.businessOpenDate = businessOpenDate;
-        this.businessAddressRaw = businessAddressRaw;
-        this.businessAddressNormalized = businessAddressNormalized;
-        this.businessPhone = businessPhone;
-        this.businessLicenseObjectKey = businessLicenseObjectKey;
-        resetVerification();
     }
 
     public void moveToUnderReview() {
@@ -277,6 +291,29 @@ public class OwnerApplication extends BaseTimeEntity {
         this.rejectReason = rejectReason;
     }
 
+    public void updateOwnerDraft(
+        String storeName,
+        String businessNumber,
+        String representativeName,
+        LocalDate businessOpenDate,
+        String businessAddressRaw,
+        String businessAddressNormalized,
+        String businessPhone,
+        String businessLicenseObjectKey,
+        String businessLicenseContentType
+    ) {
+        this.storeName = storeName;
+        this.businessNumber = businessNumber;
+        this.representativeName = representativeName;
+        this.businessOpenDate = businessOpenDate;
+        this.businessAddressRaw = businessAddressRaw;
+        this.businessAddressNormalized = businessAddressNormalized;
+        this.businessPhone = businessPhone;
+        this.businessLicenseObjectKey = businessLicenseObjectKey;
+        this.businessLicenseContentType = normalizeContentType(businessLicenseContentType);
+        resetVerification();
+    }
+
     public void markBusinessLicenseDeleted(LocalDateTime deletedAt, String deleteReason) {
         this.deletedAt = deletedAt;
         this.deleteReason = deleteReason;
@@ -304,5 +341,10 @@ public class OwnerApplication extends BaseTimeEntity {
         this.finalReviewedByAdmin = null;
         this.reviewedAt = null;
         this.rejectReason = null;
+    }
+
+    private static String normalizeContentType(String contentType) {
+        String candidate = contentType == null ? "" : contentType.trim();
+        return candidate.isBlank() ? "application/octet-stream" : candidate.toLowerCase(Locale.ROOT);
     }
 }

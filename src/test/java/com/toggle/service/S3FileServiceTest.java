@@ -91,6 +91,21 @@ class S3FileServiceTest {
     }
 
     @Test
+    void uploadFileShouldRejectMissingContentType() {
+        MockMultipartFile file = new MockMultipartFile(
+            "file",
+            "license.pdf",
+            null,
+            "not-allowed".getBytes(StandardCharsets.UTF_8)
+        );
+
+        assertThatThrownBy(() -> service.uploadFile(file, "business"))
+            .isInstanceOf(com.toggle.global.exception.ApiException.class)
+            .extracting(throwable -> ((com.toggle.global.exception.ApiException) throwable).getCode())
+            .isEqualTo("INVALID_FILE_CONTENT_TYPE");
+    }
+
+    @Test
     void uploadFileShouldRejectOversizedStoreImages() {
         byte[] oversized = new byte[(int) (5L * 1024L * 1024L) + 1];
         MockMultipartFile file = new MockMultipartFile(

@@ -2,6 +2,7 @@ package com.toggle.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
@@ -12,6 +13,7 @@ import com.toggle.dto.owner.OwnerApplicationRequest;
 import com.toggle.dto.owner.OwnerApplicationUpdateRequest;
 import com.toggle.dto.owner.OwnerStoreProfileUpdateRequest;
 import com.toggle.dto.owner.NationalTaxVerificationResult;
+import com.toggle.global.exception.ApiException;
 import com.toggle.entity.ExternalSource;
 import com.toggle.entity.BusinessVerificationStatus;
 import com.toggle.entity.OwnerApplication;
@@ -46,7 +48,6 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.util.ReflectionTestUtils;
-import org.springframework.mock.web.MockMultipartFile;
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -154,11 +155,76 @@ class OwnerApplicationServiceTest {
 
         OwnerApplication stored = ownerApplicationRepository.findAllByUserIdOrderByCreatedAtDesc(owner.getId()).getFirst();
         assertThat(stored.getBusinessLicenseObjectKey()).isEqualTo("business/license.pdf");
+        assertThat(stored.getBusinessLicenseContentType()).isEqualTo("application/pdf");
         assertThat(stored.getDeletedAt()).isNull();
 
         var detail = ownerApplicationService.getApplicationDetail(stored.getId());
         assertThat(detail.application().businessLicenseObjectKey()).isEqualTo("business/license.pdf");
         assertThat(detail.businessLicensePresignedUrl()).isEqualTo("https://presigned.example/business/license.pdf");
+    }
+
+    @Test
+    void createApplicationShouldPersistImageBusinessLicenseMetadata() {
+        User owner = userRepository.save(new User(
+            "owner-image@toggle.com",
+            passwordEncoder.encode("password123!"),
+            "owner-image",
+            UserRole.OWNER,
+            UserStatus.ACTIVE
+        ));
+
+        given(s3FileService.uploadFile(org.mockito.ArgumentMatchers.any(MultipartFile.class), eq("business")))
+            .willReturn(new S3FileService.StoredFile("https://sku-toggle.s3.ap-northeast-2.amazonaws.com/business/license.jpg", "business/license.jpg"));
+
+        OwnerApplicationRequest request = new OwnerApplicationRequest(
+            "owner-shop",
+            "123-45-67890",
+            "홍길동",
+            LocalDate.of(2021, 3, 15),
+            "서울특별시 강남구 테헤란로 123",
+            "02-1234-5678"
+        );
+
+        ownerApplicationService.createApplication(owner, request, new MockMultipartFile(
+            "businessLicenseFile",
+            "license.jpg",
+            "image/jpeg",
+            "jpeg-bytes".getBytes(StandardCharsets.UTF_8)
+        ));
+
+        OwnerApplication stored = ownerApplicationRepository.findAllByUserIdOrderByCreatedAtDesc(owner.getId()).getFirst();
+        assertThat(stored.getBusinessLicenseObjectKey()).isEqualTo("business/license.jpg");
+        assertThat(stored.getBusinessLicenseContentType()).isEqualTo("image/jpeg");
+    }
+
+    @Test
+    void createApplicationShouldRejectMissingBusinessLicenseContentType() {
+        User owner = userRepository.save(new User(
+            "owner-null-type@toggle.com",
+            passwordEncoder.encode("password123!"),
+            "owner-null-type",
+            UserRole.OWNER,
+            UserStatus.ACTIVE
+        ));
+
+        OwnerApplicationRequest request = new OwnerApplicationRequest(
+            "owner-shop",
+            "123-45-67890",
+            "홍길동",
+            LocalDate.of(2021, 3, 15),
+            "서울특별시 강남구 테헤란로 123",
+            "02-1234-5678"
+        );
+
+        assertThatThrownBy(() -> ownerApplicationService.createApplication(owner, request, new MockMultipartFile(
+            "businessLicenseFile",
+            "license.pdf",
+            null,
+            "pdf-bytes".getBytes(StandardCharsets.UTF_8)
+        )))
+            .isInstanceOf(ApiException.class)
+            .extracting(throwable -> ((ApiException) throwable).getCode())
+            .isEqualTo("INVALID_FILE_CONTENT_TYPE");
     }
 
     @Test
@@ -213,6 +279,7 @@ class OwnerApplicationServiceTest {
 
         OwnerApplication updated = ownerApplicationRepository.findById(stored.getId()).orElseThrow();
         assertThat(updated.getBusinessLicenseObjectKey()).isEqualTo("business/second.pdf");
+        assertThat(updated.getBusinessLicenseContentType()).isEqualTo("application/pdf");
         verify(s3FileService).deleteFile("business/first.pdf");
     }
 

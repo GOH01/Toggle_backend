@@ -120,8 +120,9 @@ public class OwnerApplicationService {
         assertOwner(ownerUser);
 
         ensureNoActiveDuplicateApplication(ownerUser.getId(), request.businessNumber(), request.businessAddress(), null);
+        String contentType = requireBusinessLicenseContentType(businessLicenseFile);
         S3FileService.StoredFile storedFile = s3FileService.uploadFile(businessLicenseFile, "business");
-        OwnerApplication application = buildApplication(ownerUser, request, storedFile.key());
+        OwnerApplication application = buildApplication(ownerUser, request, storedFile.key(), contentType);
         ownerApplicationRepository.save(application);
         runInitialVerifications(application);
 
@@ -147,7 +148,9 @@ public class OwnerApplicationService {
         ensureNoActiveDuplicateApplication(ownerUser.getId(), request.businessNumber(), request.businessAddress(), applicationId);
 
         String storedKey = application.getBusinessLicenseObjectKey();
+        String contentType = application.getBusinessLicenseContentType();
         if (businessLicenseFile != null) {
+            contentType = requireBusinessLicenseContentType(businessLicenseFile);
             S3FileService.StoredFile storedFile = s3FileService.uploadFile(businessLicenseFile, "business");
             storedKey = storedFile.key();
             if (application.getBusinessLicenseObjectKey() != null && !application.getBusinessLicenseObjectKey().isBlank()
@@ -165,7 +168,8 @@ public class OwnerApplicationService {
             normalizedAddress,
             addressNormalizer.normalize(normalizedAddress),
             normalizePhone(request.businessPhone()),
-            storedKey
+            storedKey,
+            contentType
         );
         runInitialVerifications(application);
         return toApplicationResponse(application);
@@ -467,7 +471,8 @@ public class OwnerApplicationService {
     private OwnerApplication buildApplication(
         User ownerUser,
         OwnerApplicationRequest request,
-        String storedKey
+        String storedKey,
+        String contentType
     ) {
         String normalizedAddress = request.businessAddress().trim();
         return new OwnerApplication(
@@ -479,8 +484,17 @@ public class OwnerApplicationService {
             normalizedAddress,
             addressNormalizer.normalize(normalizedAddress),
             normalizePhone(request.businessPhone()),
-            storedKey
+            storedKey,
+            contentType
         );
+    }
+
+    private String requireBusinessLicenseContentType(MultipartFile businessLicenseFile) {
+        String contentType = businessLicenseFile == null ? null : businessLicenseFile.getContentType();
+        if (contentType == null || contentType.trim().isBlank()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_FILE_CONTENT_TYPE", "사업자등록증 파일의 Content-Type을 확인할 수 없습니다.");
+        }
+        return contentType.trim().toLowerCase(Locale.ROOT);
     }
 
     private void runInitialVerifications(OwnerApplication application) {
@@ -1150,4 +1164,5 @@ public class OwnerApplicationService {
         KakaoKeywordSearchResponse.KakaoPlaceDocument place
     ) {
     }
+
 }

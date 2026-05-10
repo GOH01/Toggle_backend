@@ -49,7 +49,8 @@ class FileUploadControllerTest {
         mockMvc.perform(multipart("/api/v1/files/business").file(file).with(user("owner@toggle.com").roles("OWNER")))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.url").value(org.hamcrest.Matchers.startsWith("/api/v1/files/view?key=business%2F")))
-            .andExpect(jsonPath("$.data.key").value("business/test.pdf"));
+            .andExpect(jsonPath("$.data.key").value("business/test.pdf"))
+            .andExpect(jsonPath("$.data.contentType").value("application/pdf"));
     }
 
     @Test
@@ -67,7 +68,8 @@ class FileUploadControllerTest {
         mockMvc.perform(multipart("/api/v1/files/review").file(file).with(user("user@toggle.com").roles("USER")))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.url").value(org.hamcrest.Matchers.startsWith("/api/v1/files/view?key=review%2F")))
-            .andExpect(jsonPath("$.data.key").value("review/test.png"));
+            .andExpect(jsonPath("$.data.key").value("review/test.png"))
+            .andExpect(jsonPath("$.data.contentType").value("image/png"));
     }
 
     @Test

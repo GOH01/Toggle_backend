@@ -112,4 +112,41 @@ class OwnerApplicationControllerMultipartTest {
         assertThat(requestCaptor.getValue().businessNumber()).isEqualTo("0123456789");
         assertThat(requestCaptor.getValue().storeName()).isEqualTo("테스트상점");
     }
+
+    @Test
+    void createApplicationShouldRejectMissingBusinessLicenseFilePart() throws Exception {
+        User owner = new User(
+            "owner@toggle.com",
+            "encoded-password",
+            "owner",
+            UserRole.OWNER,
+            UserStatus.ACTIVE
+        );
+
+        when(authService.getAuthenticatedUser()).thenReturn(owner);
+
+        String requestJson = objectMapper.writeValueAsString(new OwnerApplicationRequest(
+            "테스트상점",
+            "0123456789",
+            "홍길동",
+            LocalDate.of(2026, 5, 11),
+            "서울특별시 강남구 테헤란로 123",
+            "02-1234-5678"
+        ));
+
+        MockMultipartFile requestPart = new MockMultipartFile(
+            "request",
+            "request.json",
+            MediaType.TEXT_PLAIN_VALUE,
+            requestJson.getBytes(StandardCharsets.UTF_8)
+        );
+
+        mockMvc.perform(
+                multipart("/api/v1/owner/store-applications")
+                    .file(requestPart)
+                    .with(user("owner@toggle.com").roles("OWNER"))
+            )
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"));
+    }
 }
