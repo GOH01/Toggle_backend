@@ -58,6 +58,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.Optional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -66,6 +68,7 @@ import org.springframework.web.multipart.MultipartFile;
 @Service
 public class OwnerApplicationService {
 
+    private static final Logger log = LoggerFactory.getLogger(OwnerApplicationService.class);
     private static final DateTimeFormatter NTS_DATE_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd");
     private static final int BUSINESS_LICENSE_RETENTION_DAYS = 7;
     private static final Set<String> BUSINESS_LICENSE_CONTENT_TYPES = Set.of(
@@ -646,14 +649,16 @@ public class OwnerApplicationService {
 
     private void runMapVerification(OwnerApplication application) {
         application.markMapVerificationPending();
+        String addressQuery = normalizeKakaoAddressQuery(application.getBusinessAddressRaw());
+        log.info("Kakao address search query: {}", addressQuery);
         try {
-            List<Candidate> candidates = searchCandidates(application);
+            List<Candidate> candidates = searchCandidates(application, addressQuery);
             if (candidates.isEmpty()) {
                 application.markMapVerificationFailed();
                 mapVerificationHistoryRepository.save(new MapVerificationHistory(
                     application,
-                    application.getStoreName() + " " + application.getBusinessAddressRaw(),
-                    MapVerificationQueryType.NAME_AND_ADDRESS,
+                    addressQuery,
+                    MapVerificationQueryType.ADDRESS_ONLY,
                     VerificationRecordStatus.FAILED,
                     0,
                     null,
@@ -666,8 +671,8 @@ public class OwnerApplicationService {
                     null,
                     "[]",
                     null,
-                    "KAKAO_PLACE_NOT_FOUND",
-                    "카카오맵에서 실영업주소가 정확히 일치하는 매장을 찾지 못했습니다.",
+                    "KAKAO_ADDRESS_SEARCH_FAILED",
+                    "카카오 주소 검색에 실패했습니다.",
                     LocalDateTime.now()
                 ));
                 return;
@@ -770,10 +775,16 @@ public class OwnerApplicationService {
             ));
         } catch (ApiException ex) {
             application.markMapVerificationFailed();
+            String failureCode = ex.getStatus() == HttpStatus.BAD_REQUEST
+                ? "KAKAO_ADDRESS_SEARCH_FAILED"
+                : ex.getCode();
+            String failureMessage = ex.getStatus() == HttpStatus.BAD_REQUEST
+                ? "카카오 주소 검색에 실패했습니다."
+                : ex.getMessage();
             mapVerificationHistoryRepository.save(new MapVerificationHistory(
                 application,
-                application.getStoreName() + " " + application.getBusinessAddressRaw(),
-                MapVerificationQueryType.NAME_AND_ADDRESS,
+                addressQuery,
+                MapVerificationQueryType.ADDRESS_ONLY,
                 VerificationRecordStatus.FAILED,
                 0,
                 null,
@@ -786,16 +797,16 @@ public class OwnerApplicationService {
                 null,
                 null,
                 null,
-                ex.getCode(),
-                ex.getMessage(),
+                failureCode,
+                failureMessage,
                 LocalDateTime.now()
             ));
         } catch (Exception ex) {
             application.markMapVerificationFailed();
             mapVerificationHistoryRepository.save(new MapVerificationHistory(
                 application,
-                application.getStoreName() + " " + application.getBusinessAddressRaw(),
-                MapVerificationQueryType.NAME_AND_ADDRESS,
+                addressQuery,
+                MapVerificationQueryType.ADDRESS_ONLY,
                 VerificationRecordStatus.FAILED,
                 0,
                 null,
@@ -808,30 +819,19 @@ public class OwnerApplicationService {
                 null,
                 null,
                 null,
-                "KAKAO_LOCAL_API_ERROR",
-                firstNonBlank(ex.getMessage(), "카카오 장소 검색 중 예상치 못한 오류가 발생했습니다."),
+                "KAKAO_ADDRESS_SEARCH_FAILED",
+                firstNonBlank(ex.getMessage(), "카카오 주소 검색에 실패했습니다."),
                 LocalDateTime.now()
             ));
         }
     }
 
-    private List<Candidate> searchCandidates(OwnerApplication application) {
+    private List<Candidate> searchCandidates(OwnerApplication application, String addressQuery) {
         List<Candidate> candidates = new ArrayList<>();
-        String addressQuery = application.getBusinessAddressRaw();
-        String nameAndAddressQuery = application.getStoreName() + " " + addressQuery;
         candidates.addAll(scoreCandidates(
-            kakaoPlaceClient.searchByKeyword(nameAndAddressQuery),
+            kakaoPlaceClient.searchByKeyword(addressQuery),
             application,
-            nameAndAddressQuery,
-            MapVerificationQueryType.NAME_AND_ADDRESS,
-            addressQuery
-        ));
-
-        String addressOnlyQuery = addressQuery;
-        candidates.addAll(scoreCandidates(
-            kakaoPlaceClient.searchByKeyword(addressOnlyQuery),
-            application,
-            addressOnlyQuery,
+            addressQuery,
             MapVerificationQueryType.ADDRESS_ONLY,
             addressQuery
         ));
@@ -949,6 +949,13 @@ public class OwnerApplicationService {
             return "";
         }
         return rawPhone.replaceAll("[^0-9]", "");
+    }
+
+    private String normalizeKakaoAddressQuery(String rawAddress) {
+        if (rawAddress == null) {
+            return "";
+        }
+        return rawAddress.trim().replaceAll("\\s+", " ");
     }
 
     private String normalizeBusinessLicenseOriginalName(String originalFilename) {

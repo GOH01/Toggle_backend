@@ -589,10 +589,8 @@ class ToggleBackendApplicationTests {
             new BigDecimal("127.0276100"),
             new BigDecimal("37.4980950")
         );
-        given(kakaoPlaceClient.searchByKeyword("owner-shop 서울특별시 강남구 테헤란로 123"))
-            .willReturn(java.util.List.of(weak));
         given(kakaoPlaceClient.searchByKeyword("서울특별시 강남구 테헤란로 123"))
-            .willReturn(java.util.List.of(strong));
+            .willReturn(java.util.List.of(weak, strong));
 
         mockMvc.perform(multipart("/api/v1/owner/store-registration-requests")
                 .file(ownerApplicationRequestPart("서울특별시 강남구 테헤란로 123"))
@@ -626,7 +624,7 @@ class ToggleBackendApplicationTests {
             new BigDecimal("127.0276100"),
             new BigDecimal("37.4980950")
         );
-        given(kakaoPlaceClient.searchByKeyword("owner-shop 서울특별시 강남구 테헤란로 123"))
+        given(kakaoPlaceClient.searchByKeyword("서울특별시 강남구 테헤란로 123"))
             .willReturn(java.util.List.of(first, second));
 
         String response = mockMvc.perform(multipart("/api/v1/owner/store-registration-requests")
@@ -672,7 +670,7 @@ class ToggleBackendApplicationTests {
             new BigDecimal("126.9281000"),
             new BigDecimal("37.3833000")
         );
-        given(kakaoPlaceClient.searchByKeyword("하삼동 커피 경기도 안양시 만안구 만안로 35"))
+        given(kakaoPlaceClient.searchByKeyword("경기도 안양시 만안구 만안로 35"))
             .willReturn(java.util.List.of(other, target));
 
         mockMvc.perform(multipart("/api/v1/owner/store-registration-requests")
@@ -758,7 +756,7 @@ class ToggleBackendApplicationTests {
             new BigDecimal("127.0276100"),
             new BigDecimal("37.4980950")
         );
-        given(kakaoPlaceClient.searchByKeyword("owner-shop 서울특별시 강남구 테헤란로 123"))
+        given(kakaoPlaceClient.searchByKeyword("서울특별시 강남구 테헤란로 123"))
             .willReturn(java.util.List.of(phoneMatched, other));
 
         mockMvc.perform(multipart("/api/v1/owner/store-registration-requests")
@@ -783,7 +781,7 @@ class ToggleBackendApplicationTests {
             new BigDecimal("127.0276100"),
             new BigDecimal("37.4980950")
         );
-        given(kakaoPlaceClient.searchByKeyword("owner-shop 서울특별시 강남구 역삼동 123-45"))
+        given(kakaoPlaceClient.searchByKeyword("서울특별시 강남구 역삼동 123-45"))
             .willReturn(java.util.List.of(place));
 
         mockMvc.perform(multipart("/api/v1/owner/store-registration-requests")
@@ -804,7 +802,8 @@ class ToggleBackendApplicationTests {
         mockMvc.perform(get("/api/v1/admin/store-registration-requests/{applicationId}", applicationId)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.mapVerificationHistories[0].failureMessage").value("카카오맵에서 실영업주소가 정확히 일치하는 매장을 찾지 못했습니다."));
+            .andExpect(jsonPath("$.data.mapVerificationHistories[0].failureCode").value("KAKAO_ADDRESS_SEARCH_FAILED"))
+            .andExpect(jsonPath("$.data.mapVerificationHistories[0].failureMessage").value("카카오 주소 검색에 실패했습니다."));
     }
 
     @Test
@@ -1518,9 +1517,7 @@ class ToggleBackendApplicationTests {
             new BigDecimal("127.0450000"),
             new BigDecimal("37.5060000")
         );
-        given(kakaoPlaceClient.searchByKeyword("owner-shop 서울특별시 강남구 선릉로 551"))
-            .willReturn(java.util.List.of(noisyNameQueryResult));
         given(kakaoPlaceClient.searchByKeyword("서울특별시 강남구 선릉로 551"))
-            .willReturn(java.util.List.of(addressQueryResult));
+            .willReturn(java.util.List.of(noisyNameQueryResult, addressQueryResult));
     }
 }

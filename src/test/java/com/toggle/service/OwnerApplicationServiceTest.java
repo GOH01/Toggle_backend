@@ -495,6 +495,78 @@ class OwnerApplicationServiceTest {
     }
 
     @Test
+    void createApplicationShouldQueryKakaoWithAddressOnly() {
+        User owner = userRepository.save(new User(
+            "owner-address-only@toggle.com",
+            passwordEncoder.encode("password123!"),
+            "owner-address-only",
+            UserRole.OWNER,
+            UserStatus.ACTIVE
+        ));
+
+        given(s3FileService.uploadFile(org.mockito.ArgumentMatchers.any(), eq("business")))
+            .willReturn(new S3FileService.StoredFile("https://sku-toggle.s3.ap-northeast-2.amazonaws.com/business/license.pdf", "business/license.pdf"));
+        given(kakaoPlaceClient.searchByKeyword("경기 안양시 만안구 안양로 96"))
+            .willReturn(List.of());
+
+        OwnerApplicationRequest request = new OwnerApplicationRequest(
+            "bbq",
+            "123-45-67890",
+            "홍길동",
+            LocalDate.of(2021, 3, 15),
+            " 경기   안양시 만안구 안양로 96 ",
+            "031-123-4567"
+        );
+
+        assertThatCode(() -> ownerApplicationService.createApplication(owner, request, new MockMultipartFile(
+            "businessLicenseFile",
+            "license.pdf",
+            "application/pdf",
+            "pdf-bytes".getBytes(StandardCharsets.UTF_8)
+        ))).doesNotThrowAnyException();
+
+        verify(kakaoPlaceClient).searchByKeyword("경기 안양시 만안구 안양로 96");
+        verify(kakaoPlaceClient, never()).searchByKeyword("bbq 경기 안양시 만안구 안양로 96");
+    }
+
+    @Test
+    void createApplicationShouldMarkAddressSearchFailureWhenKakaoBadRequestOccurs() {
+        User owner = userRepository.save(new User(
+            "owner-address-fail@toggle.com",
+            passwordEncoder.encode("password123!"),
+            "owner-address-fail",
+            UserRole.OWNER,
+            UserStatus.ACTIVE
+        ));
+
+        given(s3FileService.uploadFile(org.mockito.ArgumentMatchers.any(), eq("business")))
+            .willReturn(new S3FileService.StoredFile("https://sku-toggle.s3.ap-northeast-2.amazonaws.com/business/license.pdf", "business/license.pdf"));
+        given(kakaoPlaceClient.searchByKeyword("경기 안양시 만안구 안양로 96"))
+            .willThrow(new ApiException(org.springframework.http.HttpStatus.BAD_REQUEST, "KAKAO_LOCAL_BAD_REQUEST", "잘못된 요청"));
+
+        OwnerApplicationRequest request = new OwnerApplicationRequest(
+            "bbq",
+            "123-45-67890",
+            "홍길동",
+            LocalDate.of(2021, 3, 15),
+            "경기 안양시 만안구 안양로 96",
+            "031-123-4567"
+        );
+
+        assertThatCode(() -> ownerApplicationService.createApplication(owner, request, new MockMultipartFile(
+            "businessLicenseFile",
+            "license.pdf",
+            "application/pdf",
+            "pdf-bytes".getBytes(StandardCharsets.UTF_8)
+        ))).doesNotThrowAnyException();
+
+        OwnerApplication stored = ownerApplicationRepository.findAllByUserIdOrderByCreatedAtDesc(owner.getId()).getFirst();
+        assertThat(stored.getMapVerificationStatus()).isEqualTo(MapVerificationStatus.FAILED);
+        assertThat(mapVerificationHistoryRepository.findAllByRequestIdOrderByCreatedAtDesc(stored.getId()).getFirst().getFailureCode())
+            .isEqualTo("KAKAO_ADDRESS_SEARCH_FAILED");
+    }
+
+    @Test
     void listLinkedStoresShouldExposeBrowserAccessibleImageUrls() {
         User owner = userRepository.save(new User(
             "owner3@toggle.com",
