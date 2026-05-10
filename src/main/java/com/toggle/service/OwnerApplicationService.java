@@ -56,6 +56,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.Optional;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -66,6 +67,12 @@ import org.springframework.web.multipart.MultipartFile;
 public class OwnerApplicationService {
 
     private static final DateTimeFormatter NTS_DATE_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd");
+    private static final int BUSINESS_LICENSE_RETENTION_DAYS = 7;
+    private static final Set<String> BUSINESS_LICENSE_CONTENT_TYPES = Set.of(
+        "application/pdf",
+        "image/jpeg",
+        "image/png"
+    );
     private static final List<OwnerApplicationReviewStatus> ACTIVE_REQUEST_STATUSES = List.of(
         OwnerApplicationReviewStatus.PENDING,
         OwnerApplicationReviewStatus.UNDER_REVIEW
@@ -120,9 +127,10 @@ public class OwnerApplicationService {
         assertOwner(ownerUser);
 
         ensureNoActiveDuplicateApplication(ownerUser.getId(), request.businessNumber(), request.businessAddress(), null);
-        String contentType = requireBusinessLicenseContentType(businessLicenseFile);
+        BusinessLicenseMetadata metadata = requireBusinessLicenseMetadata(businessLicenseFile);
         S3FileService.StoredFile storedFile = s3FileService.uploadFile(businessLicenseFile, "business");
-        OwnerApplication application = buildApplication(ownerUser, request, storedFile.key(), contentType);
+        String storedKey = requireStoredBusinessLicenseKey(storedFile.key());
+        OwnerApplication application = buildApplication(ownerUser, request, storedKey, metadata);
         ownerApplicationRepository.save(application);
         runInitialVerifications(application);
 
@@ -148,11 +156,11 @@ public class OwnerApplicationService {
         ensureNoActiveDuplicateApplication(ownerUser.getId(), request.businessNumber(), request.businessAddress(), applicationId);
 
         String storedKey = application.getBusinessLicenseObjectKey();
-        String contentType = application.getBusinessLicenseContentType();
+        BusinessLicenseMetadata metadata = BusinessLicenseMetadata.from(application);
         if (businessLicenseFile != null) {
-            contentType = requireBusinessLicenseContentType(businessLicenseFile);
+            metadata = requireBusinessLicenseMetadata(businessLicenseFile);
             S3FileService.StoredFile storedFile = s3FileService.uploadFile(businessLicenseFile, "business");
-            storedKey = storedFile.key();
+            storedKey = requireStoredBusinessLicenseKey(storedFile.key());
             if (application.getBusinessLicenseObjectKey() != null && !application.getBusinessLicenseObjectKey().isBlank()
                 && !application.getBusinessLicenseObjectKey().equals(storedKey)) {
                 s3FileService.deleteFile(application.getBusinessLicenseObjectKey());
@@ -169,7 +177,11 @@ public class OwnerApplicationService {
             addressNormalizer.normalize(normalizedAddress),
             normalizePhone(request.businessPhone()),
             storedKey,
-            contentType
+            metadata.originalName(),
+            metadata.contentType(),
+            metadata.size(),
+            metadata.uploadedAt(),
+            metadata.expiresAt()
         );
         runInitialVerifications(application);
         return toApplicationResponse(application);
@@ -472,7 +484,7 @@ public class OwnerApplicationService {
         User ownerUser,
         OwnerApplicationRequest request,
         String storedKey,
-        String contentType
+        BusinessLicenseMetadata metadata
     ) {
         String normalizedAddress = request.businessAddress().trim();
         return new OwnerApplication(
@@ -485,16 +497,53 @@ public class OwnerApplicationService {
             addressNormalizer.normalize(normalizedAddress),
             normalizePhone(request.businessPhone()),
             storedKey,
-            contentType
+            metadata.originalName(),
+            metadata.contentType(),
+            metadata.size(),
+            metadata.uploadedAt(),
+            metadata.expiresAt()
         );
     }
 
-    private String requireBusinessLicenseContentType(MultipartFile businessLicenseFile) {
-        String contentType = businessLicenseFile == null ? null : businessLicenseFile.getContentType();
-        if (contentType == null || contentType.trim().isBlank()) {
+    private BusinessLicenseMetadata requireBusinessLicenseMetadata(MultipartFile businessLicenseFile) {
+        if (businessLicenseFile == null || businessLicenseFile.isEmpty()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "FILE_REQUIRED", "사업자등록증 파일은 필수입니다.");
+        }
+
+        String originalName = normalizeBusinessLicenseOriginalName(businessLicenseFile.getOriginalFilename());
+        if (originalName.isBlank()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_FILE_NAME", "사업자등록증 파일의 원본 파일명을 확인할 수 없습니다.");
+        }
+
+        String contentType = normalizeBusinessLicenseContentType(businessLicenseFile.getContentType());
+        if (contentType.isBlank()) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_FILE_CONTENT_TYPE", "사업자등록증 파일의 Content-Type을 확인할 수 없습니다.");
         }
-        return contentType.trim().toLowerCase(Locale.ROOT);
+        if (!BUSINESS_LICENSE_CONTENT_TYPES.contains(contentType)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_FILE_TYPE", "사업자등록증에 허용되지 않는 파일 형식입니다.");
+        }
+
+        long size = businessLicenseFile.getSize();
+        if (size <= 0L) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_FILE_SIZE", "사업자등록증 파일 크기가 올바르지 않습니다.");
+        }
+
+        LocalDateTime uploadedAt = LocalDateTime.now();
+        return new BusinessLicenseMetadata(
+            originalName,
+            contentType,
+            size,
+            uploadedAt,
+            uploadedAt.plusDays(BUSINESS_LICENSE_RETENTION_DAYS)
+        );
+    }
+
+    private String requireStoredBusinessLicenseKey(String storedKey) {
+        String normalizedKey = storedKey == null ? "" : storedKey.trim();
+        if (normalizedKey.isBlank()) {
+            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "FILE_STORAGE_FAILED", "파일 저장에 실패했습니다.");
+        }
+        return normalizedKey;
     }
 
     private void runInitialVerifications(OwnerApplication application) {
@@ -894,6 +943,31 @@ public class OwnerApplicationService {
         return rawPhone.replaceAll("[^0-9]", "");
     }
 
+    private String normalizeBusinessLicenseOriginalName(String originalFilename) {
+        if (originalFilename == null) {
+            return "";
+        }
+
+        String candidate = originalFilename.trim();
+        if (candidate.isBlank()) {
+            return "";
+        }
+
+        try {
+            String filename = java.nio.file.Path.of(candidate).getFileName().toString().trim();
+            return filename;
+        } catch (Exception ex) {
+            return candidate;
+        }
+    }
+
+    private String normalizeBusinessLicenseContentType(String contentType) {
+        if (contentType == null) {
+            return "";
+        }
+        return contentType.trim().toLowerCase(Locale.ROOT);
+    }
+
     private String normalizeStoreName(String rawStoreName) {
         if (rawStoreName == null) {
             return "";
@@ -1144,6 +1218,56 @@ public class OwnerApplicationService {
             .map(String::trim)
             .limit(10)
             .toList();
+    }
+
+    private record BusinessLicenseMetadata(
+        String originalName,
+        String contentType,
+        long size,
+        LocalDateTime uploadedAt,
+        LocalDateTime expiresAt
+    ) {
+        static BusinessLicenseMetadata from(OwnerApplication application) {
+            LocalDateTime uploadedAt = application.getBusinessLicenseUploadedAt() == null
+                ? LocalDateTime.now()
+                : application.getBusinessLicenseUploadedAt();
+            return new BusinessLicenseMetadata(
+                normalizeFallbackOriginalName(application.getBusinessLicenseOriginalName(), application.getBusinessLicenseObjectKey()),
+                normalizeFallbackContentType(application.getBusinessLicenseContentType()),
+                application.getBusinessLicenseSize() == null || application.getBusinessLicenseSize() <= 0L
+                    ? 0L
+                    : application.getBusinessLicenseSize(),
+                uploadedAt,
+                application.getBusinessLicenseExpiresAt() == null
+                    ? uploadedAt.plusDays(BUSINESS_LICENSE_RETENTION_DAYS)
+                    : application.getBusinessLicenseExpiresAt()
+            );
+        }
+
+        private static String normalizeFallbackOriginalName(String originalName, String fallbackKey) {
+            String candidate = originalName == null ? "" : originalName.trim();
+            if (!candidate.isBlank()) {
+                return candidate;
+            }
+
+            if (fallbackKey == null || fallbackKey.isBlank()) {
+                return "";
+            }
+
+            String fallback = fallbackKey.trim();
+            try {
+                return java.nio.file.Path.of(fallback).getFileName().toString().trim();
+            } catch (Exception ex) {
+                return fallback;
+            }
+        }
+
+        private static String normalizeFallbackContentType(String contentType) {
+            if (contentType == null || contentType.isBlank()) {
+                return "application/octet-stream";
+            }
+            return contentType.trim().toLowerCase(Locale.ROOT);
+        }
     }
 
     private record Candidate(

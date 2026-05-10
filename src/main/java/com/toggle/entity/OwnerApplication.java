@@ -11,6 +11,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import java.nio.file.Path;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Locale;
@@ -48,11 +49,23 @@ public class OwnerApplication extends BaseTimeEntity {
     @Column(nullable = false, length = 30)
     private String businessPhone;
 
+    @Column(name = "business_license_original_name", nullable = false, length = 255)
+    private String businessLicenseOriginalName;
+
     @Column(name = "business_license_object_key", nullable = false, length = 1000)
     private String businessLicenseObjectKey;
 
-    @Column(nullable = false, length = 100)
+    @Column(name = "business_license_content_type", nullable = false, length = 100)
     private String businessLicenseContentType;
+
+    @Column(name = "business_license_size", nullable = false)
+    private Long businessLicenseSize;
+
+    @Column(name = "business_license_uploaded_at", nullable = false)
+    private LocalDateTime businessLicenseUploadedAt;
+
+    @Column(name = "business_license_expires_at", nullable = false)
+    private LocalDateTime businessLicenseExpiresAt;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
@@ -108,7 +121,11 @@ public class OwnerApplication extends BaseTimeEntity {
             businessAddressNormalized,
             businessPhone,
             businessLicenseObjectKey,
-            "application/octet-stream"
+            deriveOriginalName(businessLicenseObjectKey),
+            "application/octet-stream",
+            0L,
+            LocalDateTime.now(),
+            LocalDateTime.now().plusDays(7)
         );
     }
 
@@ -122,7 +139,11 @@ public class OwnerApplication extends BaseTimeEntity {
         String businessAddressNormalized,
         String businessPhone,
         String businessLicenseObjectKey,
-        String businessLicenseContentType
+        String businessLicenseOriginalName,
+        String businessLicenseContentType,
+        Long businessLicenseSize,
+        LocalDateTime businessLicenseUploadedAt,
+        LocalDateTime businessLicenseExpiresAt
     ) {
         this.user = user;
         this.storeName = storeName;
@@ -132,8 +153,14 @@ public class OwnerApplication extends BaseTimeEntity {
         this.businessAddressRaw = businessAddressRaw;
         this.businessAddressNormalized = businessAddressNormalized;
         this.businessPhone = businessPhone;
+        this.businessLicenseOriginalName = normalizeOriginalName(businessLicenseOriginalName);
         this.businessLicenseObjectKey = businessLicenseObjectKey;
         this.businessLicenseContentType = normalizeContentType(businessLicenseContentType);
+        this.businessLicenseSize = businessLicenseSize == null ? 0L : businessLicenseSize;
+        this.businessLicenseUploadedAt = businessLicenseUploadedAt == null ? LocalDateTime.now() : businessLicenseUploadedAt;
+        this.businessLicenseExpiresAt = businessLicenseExpiresAt == null
+            ? this.businessLicenseUploadedAt.plusDays(7)
+            : businessLicenseExpiresAt;
         this.reviewStatus = OwnerApplicationReviewStatus.PENDING;
         this.businessVerificationStatus = BusinessVerificationStatus.NOT_STARTED;
         this.mapVerificationStatus = MapVerificationStatus.NOT_STARTED;
@@ -175,12 +202,32 @@ public class OwnerApplication extends BaseTimeEntity {
         return businessPhone;
     }
 
+    public String getBusinessLicenseOriginalName() {
+        return businessLicenseOriginalName;
+    }
+
+    public String getBusinessLicenseOriginalFilename() {
+        return businessLicenseOriginalName;
+    }
+
     public String getBusinessLicenseObjectKey() {
         return businessLicenseObjectKey;
     }
 
     public String getBusinessLicenseContentType() {
         return businessLicenseContentType;
+    }
+
+    public Long getBusinessLicenseSize() {
+        return businessLicenseSize;
+    }
+
+    public LocalDateTime getBusinessLicenseUploadedAt() {
+        return businessLicenseUploadedAt;
+    }
+
+    public LocalDateTime getBusinessLicenseExpiresAt() {
+        return businessLicenseExpiresAt;
     }
 
     public OwnerApplicationReviewStatus getReviewStatus() {
@@ -300,7 +347,11 @@ public class OwnerApplication extends BaseTimeEntity {
         String businessAddressNormalized,
         String businessPhone,
         String businessLicenseObjectKey,
-        String businessLicenseContentType
+        String businessLicenseOriginalName,
+        String businessLicenseContentType,
+        Long businessLicenseSize,
+        LocalDateTime businessLicenseUploadedAt,
+        LocalDateTime businessLicenseExpiresAt
     ) {
         this.storeName = storeName;
         this.businessNumber = businessNumber;
@@ -309,8 +360,14 @@ public class OwnerApplication extends BaseTimeEntity {
         this.businessAddressRaw = businessAddressRaw;
         this.businessAddressNormalized = businessAddressNormalized;
         this.businessPhone = businessPhone;
+        this.businessLicenseOriginalName = normalizeOriginalName(businessLicenseOriginalName);
         this.businessLicenseObjectKey = businessLicenseObjectKey;
         this.businessLicenseContentType = normalizeContentType(businessLicenseContentType);
+        this.businessLicenseSize = businessLicenseSize == null ? 0L : businessLicenseSize;
+        this.businessLicenseUploadedAt = businessLicenseUploadedAt == null ? LocalDateTime.now() : businessLicenseUploadedAt;
+        this.businessLicenseExpiresAt = businessLicenseExpiresAt == null
+            ? this.businessLicenseUploadedAt.plusDays(7)
+            : businessLicenseExpiresAt;
         resetVerification();
     }
 
@@ -346,5 +403,26 @@ public class OwnerApplication extends BaseTimeEntity {
     private static String normalizeContentType(String contentType) {
         String candidate = contentType == null ? "" : contentType.trim();
         return candidate.isBlank() ? "application/octet-stream" : candidate.toLowerCase(Locale.ROOT);
+    }
+
+    private static String normalizeOriginalName(String originalName) {
+        String candidate = originalName == null ? "" : originalName.trim();
+        if (candidate.isBlank()) {
+            return "business-license";
+        }
+
+        try {
+            String filename = Path.of(candidate).getFileName().toString().trim();
+            return filename.isBlank() ? "business-license" : filename;
+        } catch (Exception ex) {
+            return candidate;
+        }
+    }
+
+    private static String deriveOriginalName(String businessLicenseObjectKey) {
+        if (businessLicenseObjectKey == null || businessLicenseObjectKey.isBlank()) {
+            return "business-license";
+        }
+        return normalizeOriginalName(businessLicenseObjectKey);
     }
 }
