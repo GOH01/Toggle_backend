@@ -16,6 +16,7 @@ import com.toggle.global.exception.ApiException;
 import java.nio.charset.StandardCharsets;
 import org.mockito.ArgumentCaptor;
 import org.junit.jupiter.api.Test;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
@@ -51,7 +52,7 @@ class KakaoPlaceClientTest {
         when(restTemplate.exchange(anyString(), any(HttpMethod.class), any(HttpEntity.class), any(Class.class)))
             .thenReturn(ResponseEntity.ok(responseBody));
 
-        KakaoPlaceClient client = new KakaoPlaceClient(restTemplate);
+        KakaoPlaceClient client = new KakaoPlaceClient(restTemplate, new ObjectMapper());
         ArgumentCaptor<String> urlCaptor = ArgumentCaptor.forClass(String.class);
 
         KakaoPlaceSearchResponse response = client.searchKeyword(
@@ -75,25 +76,25 @@ class KakaoPlaceClientTest {
     @Test
     void searchByAddressShouldCallAddressEndpointWithEncodedQuery() {
         RestTemplate restTemplate = mock(RestTemplate.class);
-        KakaoAddressSearchResponse responseBody = new KakaoAddressSearchResponse(
-            java.util.List.of(
-                new KakaoAddressSearchResponse.KakaoAddressDocument(
-                    "address-1",
-                    "테스트 매장",
-                    "경기 안양시 만안구 안양로 96",
-                    "경기 안양시 만안구 안양로 96",
-                    null,
-                    null,
-                    new java.math.BigDecimal("126.1234567"),
-                    new java.math.BigDecimal("37.1234567")
-                )
-            )
-        );
+        String responseBody = """
+            {
+              "documents": [
+                {
+                  "id": "address-1",
+                  "place_name": "테스트 매장",
+                  "address_name": "경기 안양시 만안구 안양로 96",
+                  "road_address_name": "경기 안양시 만안구 안양로 96",
+                  "x": "126.1234567",
+                  "y": "37.1234567"
+                }
+              ]
+            }
+            """;
 
         when(restTemplate.exchange(anyString(), any(HttpMethod.class), any(HttpEntity.class), any(Class.class)))
             .thenReturn(ResponseEntity.ok(responseBody));
 
-        KakaoPlaceClient client = new KakaoPlaceClient(restTemplate);
+        KakaoPlaceClient client = new KakaoPlaceClient(restTemplate, new ObjectMapper());
         ArgumentCaptor<String> urlCaptor = ArgumentCaptor.forClass(String.class);
 
         KakaoAddressSearchResponse response = client.searchByAddress(" 경기 안양시 만안구 안양로 96 ");
@@ -119,7 +120,7 @@ class KakaoPlaceClientTest {
                 StandardCharsets.UTF_8
             ));
 
-        KakaoPlaceClient client = new KakaoPlaceClient(restTemplate);
+        KakaoPlaceClient client = new KakaoPlaceClient(restTemplate, new ObjectMapper());
 
         assertThatThrownBy(() -> client.searchCategory(
             new KakaoCategorySearchRequest("CE7", 37.0, 127.0, 2000, 1, 15, "distance")

@@ -1,5 +1,6 @@
 package com.toggle.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.toggle.dto.kakao.KakaoCategorySearchRequest;
 import com.toggle.dto.kakao.KakaoAddressSearchResponse;
 import com.toggle.dto.kakao.KakaoKeywordSearchRequest;
@@ -26,9 +27,11 @@ import org.springframework.web.util.UriComponentsBuilder;
 public class KakaoPlaceClient {
 
     private final RestTemplate kakaoRestTemplate;
+    private final ObjectMapper objectMapper;
 
-    public KakaoPlaceClient(@Qualifier("kakaoRestTemplate") RestTemplate kakaoRestTemplate) {
+    public KakaoPlaceClient(@Qualifier("kakaoRestTemplate") RestTemplate kakaoRestTemplate, ObjectMapper objectMapper) {
         this.kakaoRestTemplate = kakaoRestTemplate;
+        this.objectMapper = objectMapper;
     }
 
     public List<KakaoKeywordSearchResponse.KakaoPlaceDocument> searchByKeyword(String query) {
@@ -50,13 +53,29 @@ public class KakaoPlaceClient {
             return new KakaoAddressSearchResponse(List.of());
         }
 
-        KakaoAddressSearchResponse body = exchangeAddress(
+        String body = exchangeAddressRaw(
             "/v2/local/search/address.json",
             Map.of("query", query.trim()),
-            KakaoAddressSearchResponse.class
+            String.class
         );
 
-        return body == null || body.documents() == null ? new KakaoAddressSearchResponse(List.of()) : body;
+        if (body == null || body.isBlank()) {
+            return new KakaoAddressSearchResponse(List.of());
+        }
+
+        try {
+            KakaoAddressSearchResponse response = objectMapper.readValue(body, KakaoAddressSearchResponse.class);
+            return response == null || response.documents() == null ? new KakaoAddressSearchResponse(List.of()) : response;
+        } catch (Exception ex) {
+            throw new KakaoAddressSearchException(
+                "/v2/local/search/address.json",
+                query.trim(),
+                HttpStatus.SERVICE_UNAVAILABLE,
+                body,
+                "KAKAO_RESPONSE_PARSE_FAILED",
+                ex
+            );
+        }
     }
 
     public KakaoPlaceSearchResponse searchKeyword(KakaoKeywordSearchRequest request) {
@@ -125,7 +144,7 @@ public class KakaoPlaceClient {
         }
     }
 
-    private <T> T exchangeAddress(String path, Map<String, Object> queryParams, Class<T> responseType) {
+    private <T> T exchangeAddressRaw(String path, Map<String, Object> queryParams, Class<T> responseType) {
         try {
             String url = buildUrl(path, queryParams);
             ResponseEntity<T> response = kakaoRestTemplate.exchange(
