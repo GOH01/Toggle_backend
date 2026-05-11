@@ -8,11 +8,15 @@ import com.toggle.dto.kakao.KakaoKeywordSearchResponse;
 import com.toggle.dto.kakao.KakaoNearbySearchRequest;
 import com.toggle.dto.kakao.KakaoPlaceSearchResponse;
 import com.toggle.global.exception.ApiException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.toggle.global.exception.KakaoAddressSearchException;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.net.URI;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
@@ -26,12 +30,20 @@ import org.springframework.web.util.UriComponentsBuilder;
 @Service
 public class KakaoPlaceClient {
 
+    private static final Logger log = LoggerFactory.getLogger(KakaoPlaceClient.class);
+
     private final RestTemplate kakaoRestTemplate;
     private final ObjectMapper objectMapper;
+    private final String kakaoBaseUrl;
 
-    public KakaoPlaceClient(@Qualifier("kakaoRestTemplate") RestTemplate kakaoRestTemplate, ObjectMapper objectMapper) {
+    public KakaoPlaceClient(
+        @Qualifier("kakaoRestTemplate") RestTemplate kakaoRestTemplate,
+        ObjectMapper objectMapper,
+        @Value("${app.kakao.base-url}") String kakaoBaseUrl
+    ) {
         this.kakaoRestTemplate = kakaoRestTemplate;
         this.objectMapper = objectMapper;
+        this.kakaoBaseUrl = kakaoBaseUrl;
     }
 
     public List<KakaoKeywordSearchResponse.KakaoPlaceDocument> searchByKeyword(String query) {
@@ -40,8 +52,7 @@ public class KakaoPlaceClient {
         }
 
         KakaoKeywordSearchResponse body = exchange(
-            "/v2/local/search/keyword.json",
-            Map.of("query", query.trim()),
+            buildUri("/v2/local/search/keyword.json", Map.of("query", query.trim())),
             KakaoKeywordSearchResponse.class
         );
 
@@ -53,11 +64,14 @@ public class KakaoPlaceClient {
             return new KakaoAddressSearchResponse(List.of());
         }
 
+        Map<String, Object> queryParams = Map.of("query", query.trim());
+        URI url = buildUri("/v2/local/search/address.json", queryParams);
+        log.info("Kakao address request url = {}", url);
         String body = exchangeAddressRaw(
-            "/v2/local/search/address.json",
-            Map.of("query", query.trim()),
+            url,
             String.class
         );
+        log.info("Kakao address raw response body = {}", body);
 
         if (body == null || body.isBlank()) {
             return new KakaoAddressSearchResponse(List.of());
@@ -90,8 +104,7 @@ public class KakaoPlaceClient {
         params.put("sort", normalizeOptional(request.sort()));
 
         return normalizeSearchResponse(exchange(
-            "/v2/local/search/keyword.json",
-            params,
+            buildUri("/v2/local/search/keyword.json", params),
             KakaoPlaceSearchResponse.class
         ));
     }
@@ -107,8 +120,7 @@ public class KakaoPlaceClient {
         params.put("sort", normalizeOptional(request.sort()));
 
         return normalizeSearchResponse(exchange(
-            "/v2/local/search/category.json",
-            params,
+            buildUri("/v2/local/search/category.json", params),
             KakaoPlaceSearchResponse.class
         ));
     }
@@ -125,9 +137,8 @@ public class KakaoPlaceClient {
         ));
     }
 
-    private <T> T exchange(String path, Map<String, Object> queryParams, Class<T> responseType) {
+    private <T> T exchange(URI url, Class<T> responseType) {
         try {
-            String url = buildUrl(path, queryParams);
             ResponseEntity<T> response = kakaoRestTemplate.exchange(
                 url,
                 HttpMethod.GET,
@@ -144,9 +155,8 @@ public class KakaoPlaceClient {
         }
     }
 
-    private <T> T exchangeAddressRaw(String path, Map<String, Object> queryParams, Class<T> responseType) {
+    private <T> T exchangeAddressRaw(URI url, Class<T> responseType) {
         try {
-            String url = buildUrl(path, queryParams);
             ResponseEntity<T> response = kakaoRestTemplate.exchange(
                 url,
                 HttpMethod.GET,
@@ -160,8 +170,8 @@ public class KakaoPlaceClient {
                 status = HttpStatus.SERVICE_UNAVAILABLE;
             }
             throw new KakaoAddressSearchException(
-                path,
-                String.valueOf(queryParams.get("query")),
+                url.getPath(),
+                url.getQuery(),
                 status,
                 ex.getResponseBodyAsString(),
                 mapAddressFailureReasonCode(ex),
@@ -169,8 +179,8 @@ public class KakaoPlaceClient {
             );
         } catch (Exception ex) {
             throw new KakaoAddressSearchException(
-                path,
-                String.valueOf(queryParams.get("query")),
+                url.getPath(),
+                url.getQuery(),
                 HttpStatus.SERVICE_UNAVAILABLE,
                 null,
                 "KAKAO_RESPONSE_PARSE_FAILED",
@@ -179,8 +189,8 @@ public class KakaoPlaceClient {
         }
     }
 
-    private String buildUrl(String path, Map<String, Object> queryParams) {
-        UriComponentsBuilder builder = UriComponentsBuilder.fromPath(path);
+    private URI buildUri(String path, Map<String, Object> queryParams) {
+        UriComponentsBuilder builder = UriComponentsBuilder.fromHttpUrl(kakaoBaseUrl).path(path);
         queryParams.forEach((key, value) -> {
             if (value == null) {
                 return;
@@ -190,7 +200,7 @@ public class KakaoPlaceClient {
             }
             builder.queryParam(key, value);
         });
-        return builder.build().encode().toUriString();
+        return builder.build().encode().toUri();
     }
 
     private KakaoPlaceSearchResponse normalizeSearchResponse(KakaoPlaceSearchResponse body) {

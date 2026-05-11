@@ -14,6 +14,7 @@ import com.toggle.dto.kakao.KakaoKeywordSearchRequest;
 import com.toggle.dto.kakao.KakaoPlaceSearchResponse;
 import com.toggle.global.exception.ApiException;
 import java.nio.charset.StandardCharsets;
+import java.net.URI;
 import org.mockito.ArgumentCaptor;
 import org.junit.jupiter.api.Test;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -49,24 +50,24 @@ class KakaoPlaceClientTest {
             )
         );
 
-        when(restTemplate.exchange(anyString(), any(HttpMethod.class), any(HttpEntity.class), any(Class.class)))
+        when(restTemplate.exchange(any(URI.class), any(HttpMethod.class), any(HttpEntity.class), any(Class.class)))
             .thenReturn(ResponseEntity.ok(responseBody));
 
-        KakaoPlaceClient client = new KakaoPlaceClient(restTemplate, new ObjectMapper());
-        ArgumentCaptor<String> urlCaptor = ArgumentCaptor.forClass(String.class);
+        KakaoPlaceClient client = new KakaoPlaceClient(restTemplate, new ObjectMapper(), "https://dapi.kakao.com");
+        ArgumentCaptor<URI> urlCaptor = ArgumentCaptor.forClass(URI.class);
 
         KakaoPlaceSearchResponse response = client.searchKeyword(
             new KakaoKeywordSearchRequest("테스트 카페", null, 37.1234567, 126.1234567, 300, 1, 15, "distance")
         );
 
         verify(restTemplate).exchange(urlCaptor.capture(), any(HttpMethod.class), any(HttpEntity.class), any(Class.class));
-        assertThat(urlCaptor.getValue()).contains("/v2/local/search/keyword.json");
-        assertThat(urlCaptor.getValue()).contains("query=");
-        assertThat(urlCaptor.getValue()).doesNotContain("테스트 카페");
-        assertThat(urlCaptor.getValue()).contains("x=126.1234567");
-        assertThat(urlCaptor.getValue()).contains("y=37.1234567");
-        assertThat(urlCaptor.getValue()).contains("radius=300");
-        assertThat(urlCaptor.getValue()).contains("sort=distance");
+        assertThat(urlCaptor.getValue().toString()).contains("/v2/local/search/keyword.json");
+        assertThat(urlCaptor.getValue().toString()).contains("query=");
+        assertThat(urlCaptor.getValue().toString()).doesNotContain("테스트 카페");
+        assertThat(urlCaptor.getValue().toString()).contains("x=126.1234567");
+        assertThat(urlCaptor.getValue().toString()).contains("y=37.1234567");
+        assertThat(urlCaptor.getValue().toString()).contains("radius=300");
+        assertThat(urlCaptor.getValue().toString()).contains("sort=distance");
 
         assertThat(response.meta().total_count()).isEqualTo(2);
         assertThat(response.documents()).hasSize(1);
@@ -91,18 +92,18 @@ class KakaoPlaceClientTest {
             }
             """;
 
-        when(restTemplate.exchange(anyString(), any(HttpMethod.class), any(HttpEntity.class), any(Class.class)))
+        when(restTemplate.exchange(any(URI.class), any(HttpMethod.class), any(HttpEntity.class), any(Class.class)))
             .thenReturn(ResponseEntity.ok(responseBody));
 
-        KakaoPlaceClient client = new KakaoPlaceClient(restTemplate, new ObjectMapper());
-        ArgumentCaptor<String> urlCaptor = ArgumentCaptor.forClass(String.class);
+        KakaoPlaceClient client = new KakaoPlaceClient(restTemplate, new ObjectMapper(), "https://dapi.kakao.com");
+        ArgumentCaptor<URI> urlCaptor = ArgumentCaptor.forClass(URI.class);
 
         KakaoAddressSearchResponse response = client.searchByAddress(" 경기 안양시 만안구 안양로 96 ");
 
         verify(restTemplate).exchange(urlCaptor.capture(), any(HttpMethod.class), any(HttpEntity.class), any(Class.class));
-        assertThat(urlCaptor.getValue()).contains("/v2/local/search/address.json");
-        assertThat(urlCaptor.getValue()).doesNotContain(" 경기 안양시 만안구 안양로 96 ");
-        assertThat(urlCaptor.getValue()).contains("query=");
+        assertThat(urlCaptor.getValue().toString()).contains("/v2/local/search/address.json");
+        assertThat(urlCaptor.getValue().toString()).doesNotContain(" 경기 안양시 만안구 안양로 96 ");
+        assertThat(urlCaptor.getValue().toString()).contains("query=");
         assertThat(response.documents()).hasSize(1);
         assertThat(response.documents().get(0).address_name()).isEqualTo("경기 안양시 만안구 안양로 96");
     }
@@ -110,7 +111,7 @@ class KakaoPlaceClientTest {
     @Test
     void searchCategoryShouldMapUpstreamErrorsToApiException() {
         RestTemplate restTemplate = mock(RestTemplate.class);
-        when(restTemplate.exchange(anyString(), any(HttpMethod.class), any(HttpEntity.class), any(Class.class)))
+        when(restTemplate.exchange(any(URI.class), any(HttpMethod.class), any(HttpEntity.class), any(Class.class)))
             .thenThrow(new HttpClientErrorException(
                 HttpStatus.BAD_REQUEST,
                 "Bad Request",
@@ -120,7 +121,7 @@ class KakaoPlaceClientTest {
                 StandardCharsets.UTF_8
             ));
 
-        KakaoPlaceClient client = new KakaoPlaceClient(restTemplate, new ObjectMapper());
+        KakaoPlaceClient client = new KakaoPlaceClient(restTemplate, new ObjectMapper(), "https://dapi.kakao.com");
 
         assertThatThrownBy(() -> client.searchCategory(
             new KakaoCategorySearchRequest("CE7", 37.0, 127.0, 2000, 1, 15, "distance")
