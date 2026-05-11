@@ -25,6 +25,8 @@ import com.toggle.dto.auth.LoginRequest;
 import com.toggle.dto.auth.RefreshTokenRequest;
 import com.toggle.dto.auth.SignupRequest;
 import com.toggle.dto.kakao.KakaoAddressSearchResponse;
+import com.toggle.dto.kakao.KakaoKeywordSearchRequest;
+import com.toggle.dto.kakao.KakaoPlaceSearchResponse;
 import com.toggle.dto.owner.ManualBusinessVerificationRequest;
 import com.toggle.dto.owner.NationalTaxVerificationResult;
 import com.toggle.dto.owner.OwnerApplicationApproveRequest;
@@ -149,6 +151,7 @@ class ToggleBackendApplicationTests {
         userMapRepository.deleteAll();
         userRepository.deleteAll();
         given(kakaoPlaceClient.searchByAddress(anyString())).willReturn(new KakaoAddressSearchResponse(java.util.List.of()));
+        given(kakaoPlaceClient.searchKeyword(any())).willAnswer(invocation -> defaultKeywordSearchResponse(invocation.getArgument(0)));
         given(nationalTaxServiceClient.verifyBusiness(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString()))
             .willReturn(new NationalTaxVerificationResult(false, "{}", "{}", null, null, null, null, "NTS_VERIFICATION_FAILED", "국세청 진위확인 결과가 일치하지 않습니다."));
         given(s3FileService.uploadFile(any(), eq("business")))
@@ -1490,6 +1493,51 @@ class ToggleBackendApplicationTests {
             new BigDecimal("37.4980950")
         );
         given(kakaoPlaceClient.searchByAddress(org.mockito.ArgumentMatchers.anyString())).willReturn(new KakaoAddressSearchResponse(java.util.List.of(place)));
+        given(kakaoPlaceClient.searchKeyword(any())).willAnswer(invocation -> {
+            KakaoKeywordSearchRequest request = invocation.getArgument(0);
+            String query = request == null || request.query() == null ? "owner-shop" : request.query();
+            return new KakaoPlaceSearchResponse(
+                new KakaoPlaceSearchResponse.KakaoPlaceSearchMeta(1, 1, true, null),
+                java.util.List.of(new KakaoPlaceSearchResponse.KakaoPlaceDocument(
+                    externalPlaceId,
+                    query,
+                    "음식점 > 한식",
+                    "FD6",
+                    "음식점",
+                    "02-1234-5678",
+                    address,
+                    address,
+                    String.valueOf(request == null || request.longitude() == null ? 127.0276100d : request.longitude()),
+                    String.valueOf(request == null || request.latitude() == null ? 37.4980950d : request.latitude()),
+                    "http://place.map.kakao.com/" + externalPlaceId,
+                    "0"
+                ))
+            );
+        });
+    }
+
+    private KakaoPlaceSearchResponse defaultKeywordSearchResponse(KakaoKeywordSearchRequest request) {
+        String query = request == null || request.query() == null ? "owner-shop" : request.query();
+        double latitude = request == null || request.latitude() == null ? 37.0d : request.latitude();
+        double longitude = request == null || request.longitude() == null ? 127.0d : request.longitude();
+        String normalizedQuery = query == null ? "keyword-place" : query.replaceAll("[^0-9A-Za-z가-힣]+", "-");
+        return new KakaoPlaceSearchResponse(
+            new KakaoPlaceSearchResponse.KakaoPlaceSearchMeta(1, 1, true, null),
+            java.util.List.of(new KakaoPlaceSearchResponse.KakaoPlaceDocument(
+                "keyword-" + normalizedQuery,
+                query,
+                "음식점 > 한식",
+                "FD6",
+                "음식점",
+                "02-1234-5678",
+                "서울특별시 강남구 테헤란로 123",
+                "서울특별시 강남구 테헤란로 123",
+                String.valueOf(longitude),
+                String.valueOf(latitude),
+                "http://place.map.kakao.com/keyword-" + normalizedQuery,
+                "10"
+            ))
+        );
     }
 
     private void mockNameQueryFallbackScenario() {

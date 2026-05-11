@@ -121,6 +121,10 @@ public class MapVerificationHistory extends BaseTimeEntity {
         return queryText;
     }
 
+    public MapVerificationQueryType getQueryType() {
+        return queryType;
+    }
+
     public VerificationRecordStatus getStatus() {
         return status;
     }
@@ -139,6 +143,22 @@ public class MapVerificationHistory extends BaseTimeEntity {
 
     public String getSelectedExternalPlaceId() {
         return selectedExternalPlaceId;
+    }
+
+    public String getSelectedPhone() {
+        return selectedPhone;
+    }
+
+    public String getSelectedCategoryName() {
+        return selectedCategoryName;
+    }
+
+    public String getSelectedLatitude() {
+        return selectedLatitude;
+    }
+
+    public String getSelectedLongitude() {
+        return selectedLongitude;
     }
 
     public String getFailureCode() {

@@ -26,7 +26,7 @@ import org.springframework.web.client.RestTemplate;
 class KakaoPlaceClientTest {
 
     @Test
-    void searchKeywordShouldReturnMetaAndDocuments() {
+    void searchKeywordShouldCallKeywordEndpointWithCoordinatesAndSort() {
         RestTemplate restTemplate = mock(RestTemplate.class);
         KakaoPlaceSearchResponse responseBody = new KakaoPlaceSearchResponse(
             new KakaoPlaceSearchResponse.KakaoPlaceSearchMeta(2, 2, true, null),
@@ -52,10 +52,20 @@ class KakaoPlaceClientTest {
             .thenReturn(ResponseEntity.ok(responseBody));
 
         KakaoPlaceClient client = new KakaoPlaceClient(restTemplate);
+        ArgumentCaptor<String> urlCaptor = ArgumentCaptor.forClass(String.class);
 
         KakaoPlaceSearchResponse response = client.searchKeyword(
-            new KakaoKeywordSearchRequest("테스트 카페", "CE7", 37.0, 127.0, 2000, 1, 15, "distance")
+            new KakaoKeywordSearchRequest("테스트 카페", null, 37.1234567, 126.1234567, 300, 1, 15, "distance")
         );
+
+        verify(restTemplate).exchange(urlCaptor.capture(), any(HttpMethod.class), any(HttpEntity.class), any(Class.class));
+        assertThat(urlCaptor.getValue()).contains("/v2/local/search/keyword.json");
+        assertThat(urlCaptor.getValue()).contains("query=");
+        assertThat(urlCaptor.getValue()).doesNotContain("테스트 카페");
+        assertThat(urlCaptor.getValue()).contains("x=126.1234567");
+        assertThat(urlCaptor.getValue()).contains("y=37.1234567");
+        assertThat(urlCaptor.getValue()).contains("radius=300");
+        assertThat(urlCaptor.getValue()).contains("sort=distance");
 
         assertThat(response.meta().total_count()).isEqualTo(2);
         assertThat(response.documents()).hasSize(1);

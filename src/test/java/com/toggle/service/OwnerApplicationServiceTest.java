@@ -3,6 +3,7 @@ package com.toggle.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
@@ -14,6 +15,8 @@ import com.toggle.dto.owner.OwnerApplicationUpdateRequest;
 import com.toggle.dto.owner.OwnerStoreProfileUpdateRequest;
 import com.toggle.dto.owner.NationalTaxVerificationResult;
 import com.toggle.dto.kakao.KakaoAddressSearchResponse;
+import com.toggle.dto.kakao.KakaoKeywordSearchRequest;
+import com.toggle.dto.kakao.KakaoPlaceSearchResponse;
 import com.toggle.global.exception.ApiException;
 import com.toggle.global.exception.KakaoAddressSearchException;
 import com.toggle.entity.ExternalSource;
@@ -110,6 +113,7 @@ class OwnerApplicationServiceTest {
         userRepository.deleteAll();
 
         given(kakaoPlaceClient.searchByAddress(anyString())).willReturn(new KakaoAddressSearchResponse(List.of()));
+        given(kakaoPlaceClient.searchKeyword(any())).willAnswer(invocation -> defaultKeywordSearchResponse(invocation.getArgument(0)));
         given(nationalTaxServiceClient.verifyBusiness(anyString(), anyString(), anyString()))
             .willReturn(new NationalTaxVerificationResult(
                 true,
@@ -122,6 +126,29 @@ class OwnerApplicationServiceTest {
                 null,
                 null
             ));
+    }
+
+    private KakaoPlaceSearchResponse defaultKeywordSearchResponse(KakaoKeywordSearchRequest request) {
+        String query = request == null || request.query() == null ? "owner-shop" : request.query();
+        double latitude = request == null || request.latitude() == null ? 37.0d : request.latitude();
+        double longitude = request == null || request.longitude() == null ? 127.0d : request.longitude();
+        return new KakaoPlaceSearchResponse(
+            new KakaoPlaceSearchResponse.KakaoPlaceSearchMeta(1, 1, true, null),
+            List.of(new KakaoPlaceSearchResponse.KakaoPlaceDocument(
+                "keyword-" + query.replaceAll("[^0-9A-Za-z가-힣]+", "-"),
+                query,
+                "음식점 > 한식",
+                "FD6",
+                "음식점",
+                "02-1234-5678",
+                "서울특별시 강남구 테헤란로 123",
+                "서울특별시 강남구 테헤란로 123",
+                String.valueOf(longitude),
+                String.valueOf(latitude),
+                "http://place.map.kakao.com/keyword-" + query.replaceAll("[^0-9A-Za-z가-힣]+", "-"),
+                "10"
+            ))
+        );
     }
 
     @Test
@@ -587,7 +614,7 @@ class OwnerApplicationServiceTest {
         assertThat(stored.getMapVerificationStatus()).isEqualTo(MapVerificationStatus.VERIFIED);
         var detail = ownerApplicationService.getApplicationDetail(stored.getId());
         assertThat(detail.application().verifiedStoreId()).isNotNull();
-        assertThat(detail.application().verifiedStoreName()).isEqualTo("BBQ CHICKEN GANGNAM");
+        assertThat(detail.application().verifiedStoreName()).isEqualTo("bbq chicken gangnam");
     }
 
     @Test

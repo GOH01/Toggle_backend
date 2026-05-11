@@ -4,6 +4,7 @@ import java.time.LocalDateTime;
 
 public record MapVerificationHistoryResponse(
     String queryText,
+    String queryType,
     String status,
     Integer candidateCount,
     String selectedPlaceName,

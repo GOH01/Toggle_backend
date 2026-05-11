@@ -3,7 +3,7 @@ package com.toggle.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.toggle.dto.kakao.KakaoAddressSearchResponse;
+import com.toggle.dto.kakao.KakaoMapVerificationResult;
 import com.toggle.dto.owner.BusinessVerificationHistoryResponse;
 import com.toggle.dto.owner.ExecuteMapVerificationRequest;
 import com.toggle.dto.owner.ManualBusinessVerificationRequest;
@@ -43,7 +43,6 @@ import com.toggle.entity.User;
 import com.toggle.entity.UserRole;
 import com.toggle.entity.VerificationRecordStatus;
 import com.toggle.global.exception.ApiException;
-import com.toggle.global.exception.KakaoAddressSearchException;
 import com.toggle.global.util.ImageUrlMapper;
 import com.toggle.repository.AdminReviewLogRepository;
 import com.toggle.repository.BusinessVerificationHistoryRepository;
@@ -91,7 +90,7 @@ public class OwnerApplicationService {
     private final StoreRepository storeRepository;
     private final StoreService storeService;
     private final StoreEligibilityService storeEligibilityService;
-    private final KakaoPlaceClient kakaoPlaceClient;
+    private final KakaoMapService kakaoMapService;
     private final NationalTaxServiceClient nationalTaxServiceClient;
     private final ObjectMapper objectMapper;
 
@@ -106,7 +105,7 @@ public class OwnerApplicationService {
         StoreRepository storeRepository,
         StoreService storeService,
         StoreEligibilityService storeEligibilityService,
-        KakaoPlaceClient kakaoPlaceClient,
+        KakaoMapService kakaoMapService,
         NationalTaxServiceClient nationalTaxServiceClient,
         ObjectMapper objectMapper
     ) {
@@ -120,7 +119,7 @@ public class OwnerApplicationService {
         this.storeRepository = storeRepository;
         this.storeService = storeService;
         this.storeEligibilityService = storeEligibilityService;
-        this.kakaoPlaceClient = kakaoPlaceClient;
+        this.kakaoMapService = kakaoMapService;
         this.nationalTaxServiceClient = nationalTaxServiceClient;
         this.objectMapper = objectMapper;
     }
@@ -225,6 +224,7 @@ public class OwnerApplicationService {
             mapVerificationHistoryRepository.findAllByRequestIdOrderByCreatedAtDesc(applicationId).stream()
                 .map(history -> new MapVerificationHistoryResponse(
                     history.getQueryText(),
+                    history.getQueryType() == null ? null : history.getQueryType().name(),
                     history.getStatus().name(),
                     history.getCandidateCount(),
                     history.getSelectedPlaceName(),
@@ -650,164 +650,202 @@ public class OwnerApplicationService {
 
     private void runMapVerification(OwnerApplication application) {
         application.markMapVerificationPending();
-        String addressQuery = normalizeKakaoAddressQuery(application.getBusinessAddressRaw());
-        String kakaoApiPath = "/v2/local/search/address.json";
-        log.info("Kakao address search query = {}", addressQuery);
-        log.info("Kakao api path = {}", kakaoApiPath);
-        try {
-            KakaoAddressSearchResponse response = kakaoPlaceClient.searchByAddress(addressQuery);
-            List<KakaoAddressSearchResponse.KakaoAddressDocument> documents = response.documents() == null
-                ? List.of()
-                : response.documents();
-            log.info("Kakao address search documents size = {}", documents.size());
-            if (documents.isEmpty()) {
-                recordMapVerificationFailure(
-                    application,
-                    addressQuery,
-                    kakaoApiPath,
-                    HttpStatus.OK,
-                    0,
-                    "KAKAO_NO_DOCUMENTS",
-                    "카카오 주소 검색 결과가 없습니다.",
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    safeJson(response),
-                    null,
-                    null
-                );
-                return;
-            }
+        KakaoMapVerificationResult result = kakaoMapService.verify(application.getStoreName(), application.getBusinessAddressRaw());
 
-            KakaoAddressSearchResponse.KakaoAddressDocument selectedDocument = documents.get(0);
-            String selectedPlaceName = firstNonBlank(selectedDocument.place_name(), application.getStoreName());
-            String selectedRoadAddress = blankToNull(selectedDocument.road_address_name());
-            String selectedJibunAddress = blankToNull(selectedDocument.address_name());
-            String selectedAddress = firstNonBlank(selectedRoadAddress, selectedJibunAddress, addressQuery);
-            String selectedExternalPlaceId = firstNonBlank(selectedDocument.id(), selectedAddress);
-            if (selectedAddress.isBlank()) {
-                recordMapVerificationFailure(
-                    application,
-                    addressQuery,
-                    kakaoApiPath,
-                    HttpStatus.OK,
-                    documents.size(),
-                    "KAKAO_RESPONSE_PARSE_FAILED",
-                    "카카오 주소 검색 응답을 해석할 수 없습니다.",
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    safeJson(response),
-                    null,
-                    null
-                );
-                return;
-            }
-
-            Optional<Store> existingStore = storeRepository.findByExternalSourceAndExternalPlaceIdAndDeletedAtIsNull(
-                ExternalSource.KAKAO,
-                selectedExternalPlaceId
-            );
-            if (existingStore.isPresent() && !isSameVerifiedStore(application, existingStore.get())) {
-                recordMapVerificationFailure(
-                    application,
-                    addressQuery,
-                    kakaoApiPath,
-                    HttpStatus.CONFLICT,
-                    documents.size(),
-                    "KAKAO_PLACE_ALREADY_REGISTERED",
-                    "이미 다른 점주가 등록한 매장입니다.",
-                    selectedPlaceName,
-                    selectedRoadAddress,
-                    selectedJibunAddress,
-                    selectedExternalPlaceId,
-                    existingStore.get(),
-                    safeJson(response),
-                    null,
-                    null
-                );
-                return;
-            }
-
-            ResolveStoreResponse resolvedStore = storeService.resolveOrCreateStore(new ResolveStoreRequest(
-                ExternalSource.KAKAO.name(),
-                selectedExternalPlaceId,
-                selectedPlaceName,
-                selectedAddress,
-                null,
-                parseKakaoCoordinate(selectedDocument.y(), "y"),
-                parseKakaoCoordinate(selectedDocument.x(), "x")
-            ));
-            Store verifiedStore = storeService.getStore(resolvedStore.storeId());
-            verifiedStore.markVerified(
-                selectedRoadAddress,
-                selectedJibunAddress,
-                blankToNull(selectedDocument.category_name()),
-                safeJson(response),
-                LocalDateTime.now()
-            );
-            application.markMapVerified(verifiedStore);
-            mapVerificationHistoryRepository.save(new MapVerificationHistory(
-                application,
-                addressQuery,
-                MapVerificationQueryType.ADDRESS_ONLY,
-                VerificationRecordStatus.SUCCESS,
-                documents.size(),
-                selectedExternalPlaceId,
-                selectedPlaceName,
-                selectedRoadAddress,
-                selectedJibunAddress,
-                null,
-                blankToNull(selectedDocument.category_name()),
-                selectedDocument.y() == null ? null : selectedDocument.y().toPlainString(),
-                selectedDocument.x() == null ? null : selectedDocument.x().toPlainString(),
-                safeJson(response),
-                verifiedStore,
-                null,
-                null,
-                LocalDateTime.now()
-            ));
-        } catch (KakaoAddressSearchException ex) {
+        if (result.isAddressFailure()) {
             recordMapVerificationFailure(
                 application,
-                addressQuery,
-                ex.getPath(),
-                ex.getStatus(),
+                result.addressQuery(),
+                result.addressApiPath(),
+                result.failureStatus() == null ? HttpStatus.SERVICE_UNAVAILABLE : result.failureStatus(),
                 0,
-                ex.getReasonCode(),
-                buildKakaoAddressFailureMessage(ex.getReasonCode()),
+                result.failureCode(),
+                result.failureMessage(),
                 null,
                 null,
                 null,
                 null,
                 null,
-                null,
-                ex.getResponseBody(),
-                ex
+                safeJson(result.addressResponse()),
+                result.failureResponseBody(),
+                null
             );
-        } catch (Exception ex) {
-            recordMapVerificationFailure(
-                application,
-                addressQuery,
-                kakaoApiPath,
-                HttpStatus.SERVICE_UNAVAILABLE,
-                0,
-                "KAKAO_RESPONSE_PARSE_FAILED",
-                firstNonBlank(ex.getMessage(), "카카오 주소 검색 응답을 해석할 수 없습니다."),
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                ex
-            );
+            return;
         }
+
+        if (result.isManualReviewRequired()) {
+            int addressDocumentCount = result.addressResponse() == null || result.addressResponse().documents() == null
+                ? 0
+                : result.addressResponse().documents().size();
+            recordMapVerificationManualReviewRequired(
+                application,
+                result.addressQuery(),
+                result.keywordQuery() == null ? result.addressApiPath() : result.keywordApiPath(),
+                addressDocumentCount,
+                result.failureCode(),
+                result.failureMessage(),
+                result.addressMatch(),
+                result.keywordQuery(),
+                result.candidateCount(),
+                safeJson(result)
+            );
+            return;
+        }
+
+        KakaoMapVerificationResult.AddressMatch addressMatch = result.addressMatch();
+        KakaoMapVerificationResult.KeywordMatch selectedMatch = result.selectedMatch();
+        if (addressMatch == null || selectedMatch == null) {
+            recordMapVerificationFailure(
+                application,
+                result.keywordQuery() == null ? result.addressQuery() : result.keywordQuery(),
+                result.keywordQuery() == null ? result.addressApiPath() : result.keywordApiPath(),
+                HttpStatus.SERVICE_UNAVAILABLE,
+                result.candidateCount(),
+                "KAKAO_RESPONSE_PARSE_FAILED",
+                "카카오 장소 후보를 해석할 수 없습니다.",
+                null,
+                null,
+                null,
+                null,
+                null,
+                safeJson(result),
+                null,
+                null
+            );
+            return;
+        }
+
+        String selectedPlaceName = firstNonBlank(selectedMatch.placeName(), addressMatch.placeName(), application.getStoreName());
+        String selectedRoadAddress = blankToNull(selectedMatch.roadAddress());
+        String selectedJibunAddress = blankToNull(selectedMatch.jibunAddress());
+        String selectedAddress = firstNonBlank(selectedRoadAddress, selectedJibunAddress, result.addressQuery(), application.getBusinessAddressRaw());
+        String selectedExternalPlaceId = firstNonBlank(selectedMatch.externalPlaceId(), addressMatch.externalPlaceId(), selectedAddress);
+        if (selectedExternalPlaceId == null || selectedExternalPlaceId.isBlank()) {
+            recordMapVerificationFailure(
+                application,
+                result.keywordQuery(),
+                result.keywordApiPath(),
+                HttpStatus.SERVICE_UNAVAILABLE,
+                result.candidateCount(),
+                "KAKAO_RESPONSE_PARSE_FAILED",
+                "카카오 장소 후보를 해석할 수 없습니다.",
+                null,
+                null,
+                null,
+                null,
+                null,
+                safeJson(result),
+                null,
+                null
+            );
+            return;
+        }
+
+        Optional<Store> existingStore = storeRepository.findByExternalSourceAndExternalPlaceIdAndDeletedAtIsNull(
+            ExternalSource.KAKAO,
+            selectedExternalPlaceId
+        );
+        if (existingStore.isPresent() && !isSameVerifiedStore(application, existingStore.get())) {
+            recordMapVerificationFailure(
+                application,
+                result.keywordQuery(),
+                result.keywordApiPath(),
+                HttpStatus.CONFLICT,
+                result.candidateCount(),
+                "KAKAO_PLACE_ALREADY_REGISTERED",
+                "이미 다른 점주가 등록한 매장입니다.",
+                selectedPlaceName,
+                selectedRoadAddress,
+                selectedJibunAddress,
+                selectedExternalPlaceId,
+                existingStore.get(),
+                safeJson(result),
+                null,
+                null
+            );
+            return;
+        }
+
+        ResolveStoreResponse resolvedStore = storeService.resolveOrCreateStore(new ResolveStoreRequest(
+            ExternalSource.KAKAO.name(),
+            selectedExternalPlaceId,
+            selectedPlaceName,
+            selectedAddress,
+            selectedMatch.phone(),
+            selectedMatch.latitude(),
+            selectedMatch.longitude()
+        ));
+        Store verifiedStore = storeService.getStore(resolvedStore.storeId());
+        verifiedStore.markVerified(
+            selectedRoadAddress,
+            selectedJibunAddress,
+            blankToNull(selectedMatch.categoryName()),
+            safeJson(result),
+            LocalDateTime.now()
+        );
+        application.markMapVerified(verifiedStore);
+        mapVerificationHistoryRepository.save(new MapVerificationHistory(
+            application,
+            result.keywordQuery(),
+            MapVerificationQueryType.KEYWORD_SEARCH,
+            VerificationRecordStatus.SUCCESS,
+            result.candidateCount(),
+            selectedExternalPlaceId,
+            selectedPlaceName,
+            selectedRoadAddress,
+            selectedJibunAddress,
+            blankToNull(selectedMatch.phone()),
+            blankToNull(selectedMatch.categoryName()),
+            selectedMatch.latitude() == null ? null : selectedMatch.latitude().toPlainString(),
+            selectedMatch.longitude() == null ? null : selectedMatch.longitude().toPlainString(),
+            safeJson(result),
+            verifiedStore,
+            null,
+            null,
+            LocalDateTime.now()
+        ));
+    }
+
+    private void recordMapVerificationManualReviewRequired(
+        OwnerApplication application,
+        String queryText,
+        String apiPath,
+        int candidateCount,
+        String failureCode,
+        String failureMessage,
+        KakaoMapVerificationResult.AddressMatch addressMatch,
+        String keywordQuery,
+        int keywordCandidateCount,
+        String responsePayloadJson
+    ) {
+        application.markMapVerificationManualReviewRequired();
+        log.info(
+            "Kakao map verification requires manual review query = {}, path = {}, candidateCount = {}, reasonCode = {}",
+            queryText,
+            apiPath,
+            candidateCount,
+            failureCode
+        );
+        mapVerificationHistoryRepository.save(new MapVerificationHistory(
+            application,
+            firstNonBlank(keywordQuery, queryText),
+            keywordQuery == null ? MapVerificationQueryType.ADDRESS_SEARCH : MapVerificationQueryType.KEYWORD_SEARCH,
+            VerificationRecordStatus.MANUAL_REVIEW_REQUIRED,
+            keywordCandidateCount,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            addressMatch == null || addressMatch.latitude() == null ? null : addressMatch.latitude().toPlainString(),
+            addressMatch == null || addressMatch.longitude() == null ? null : addressMatch.longitude().toPlainString(),
+            responsePayloadJson,
+            null,
+            failureCode,
+            failureMessage,
+            LocalDateTime.now()
+        ));
     }
 
     private BigDecimal parseKakaoCoordinate(BigDecimal rawCoordinate, String axis) {
@@ -850,7 +888,7 @@ public class OwnerApplicationService {
     ) {
         application.markMapVerificationFailed();
         log.warn(
-            "Kakao address verification failed query = {}, path = {}, httpStatus = {}, kakaoErrorBody = {}, documentsSize = {}, reasonCode = {}",
+            "Kakao map verification failed query = {}, path = {}, httpStatus = {}, kakaoErrorBody = {}, documentsSize = {}, reasonCode = {}",
             queryText,
             apiPath,
             httpStatus,
@@ -862,7 +900,7 @@ public class OwnerApplicationService {
         mapVerificationHistoryRepository.save(new MapVerificationHistory(
             application,
             queryText,
-            MapVerificationQueryType.ADDRESS_ONLY,
+            apiPath != null && apiPath.contains("keyword") ? MapVerificationQueryType.KEYWORD_SEARCH : MapVerificationQueryType.ADDRESS_SEARCH,
             VerificationRecordStatus.FAILED,
             candidateCount,
             selectedExternalPlaceId,

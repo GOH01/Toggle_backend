@@ -334,6 +334,12 @@ public class OwnerApplication extends BaseTimeEntity {
         this.reviewStatus = OwnerApplicationReviewStatus.UNDER_REVIEW;
     }
 
+    public void markMapVerificationManualReviewRequired() {
+        this.verifiedStore = null;
+        this.mapVerificationStatus = MapVerificationStatus.MANUAL_REVIEW_REQUIRED;
+        this.reviewStatus = OwnerApplicationReviewStatus.UNDER_REVIEW;
+    }
+
     public void markMapVerificationFailed() {
         this.verifiedStore = null;
         this.mapVerificationStatus = MapVerificationStatus.FAILED;
