@@ -1,0 +1,113 @@
+# This workflow uses actions that are not certified by GitHub.
+# They are provided by a third-party and are governed by
+# separate terms of service, privacy policy, and support
+# documentation.
+# This workflow will build a Java project with Gradle and cache/restore any dependencies to improve the workflow execution time
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-java-with-gradle
+
+name: Java CI with Gradle
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+      - name: Decode and move application-build.yml
+        run: |
+          mkdir -p src/main/resources
+          echo "${{ secrets.APPLICATION_YML }}" | base64 -d > src/main/resources/application-build.yml
+      # - name: Retrieve secrets
+      #   env:
+      #     MY_SECRETS_ARCHIVE: ${{ secrets.MY_SECRETS_ARCHIVE }}
+      #   run: |
+      #     echo "$MY_SECRETS_ARCHIVE" | base64 --decode > secrets.tar.gz
+      #     tar xzvf secrets.tar.gz -C src/main/resources
+      # Configure Gradle for optimal use in GitHub Actions, including caching of downloaded dependencies.
+      # See: https://github.com/gradle/actions/blob/main/setup-gradle/README.md
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@af1da67850ed9a4cedd57bfd976089dd991e2582 # v4.0.0
+
+      - name: Grant execute permission for Gradle Wrapper
+        run: chmod +x gradlew  # 실행 권한 추가
+
+      - name: Build with Gradle Wrapper
+        run: ./gradlew build
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cicdsample  #  `deploy` 단계에서 같은 이름으로 다운로드해야 함
+          path: build/libs/*.jar
+    # NOTE: The Gradle Wrapper is the default and recommended way to run Gradle (https://docs.gradle.org/current/userguide/gradle_wrapper.html).
+    # If your project does not have the Gradle Wrapper configured, you can use the following configuration to run Gradle with a specified version.
+    #
+    # - name: Setup Gradle
+    #   uses: gradle/actions/setup-gradle@af1da67850ed9a4cedd57bfd976089dd991e2582 # v4.0.0
+    #   with:
+    #     gradle-version: '8.9'
+    #
+    # - name: Build with Gradle 8.9
+    #   run: gradle build
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: cicdsample
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.5.4
+        with:
+          ssh-private-key: ${{ secrets.MY_PEM_KEY }}
+      - name: Add server to known_hosts
+        run: |
+          ssh-keyscan -H ${{ secrets.SERVER_IP }} >> ~/.ssh/known_hosts
+      - name: SCP transfer
+        run: scp -o StrictHostKeyChecking=no *-SNAPSHOT.jar ${{ secrets.SSH_USER }}@${{ secrets.SERVER_IP }}:/home/ubuntu/backend
+      # - name: Kill process using port 8081 (if exists)
+      #   run: |
+      #     ssh ${{ secrets.SSH_USER }}@${{ secrets.SERVER_IP }} "
+      #       if sudo lsof -i :8081 -sTCP:LISTEN -t; then
+      #         echo 'Process found, killing it...'
+      #         sudo fuser -k 8081/tcp
+      #       else
+      #         echo 'No process running on port 8081, skipping...'
+      #       fi"
+      - name: Execute remote commands
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SERVER_IP }} "
+            sudo fuser -k 8085/tcp || true
+            cd /home/ubuntu/backend || exit 1
+            nohup java -jar *-SNAPSHOT.jar --spring.profiles.active=build --server.port=8085 > nohup.out 2>&1 &"
+
+  dependency-submission:
+
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      # Generates and submits a dependency graph, enabling Dependabot Alerts for all project dependencies.
+      # See: https://github.com/gradle/actions/blob/main/dependency-submission/README.md
+      - name: Generate and submit dependency graph
+        uses: gradle/actions/dependency-submission@af1da67850ed9a4cedd57bfd976089dd991e2582 # v4.0.0
