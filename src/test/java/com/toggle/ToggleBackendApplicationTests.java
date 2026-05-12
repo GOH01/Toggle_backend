@@ -403,6 +403,73 @@ class ToggleBackendApplicationTests {
     }
 
     @Test
+    void myMapsShouldAllowSameStoreAcrossDifferentMapsButBlockSameMapDuplicates() throws Exception {
+        String accessToken = signupAndLoginMember("multi-map@toggle.com");
+        Long storeId = createStore("multi-map-target", "다중 지도 저장 대상", "카페", "37.4980950", "127.0276100");
+
+        String mapAResponse = mockMvc.perform(post("/api/v1/my-maps")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "title": "데이트 지도",
+                      "description": "첫번째 지도",
+                      "isPublic": true,
+                      "profileImageUrl": null
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.title").value("데이트 지도"))
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+        long mapAId = objectMapper.readTree(mapAResponse).path("data").path("mapId").asLong();
+
+        String mapBResponse = mockMvc.perform(post("/api/v1/my-maps")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "title": "카페 지도",
+                      "description": "두번째 지도",
+                      "isPublic": false,
+                      "profileImageUrl": null
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.title").value("카페 지도"))
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+        long mapBId = objectMapper.readTree(mapBResponse).path("data").path("mapId").asLong();
+
+        mockMvc.perform(post("/api/v1/my-maps/{mapId}/stores/{storeId}", mapAId, storeId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.inMyMap").value(true));
+
+        mockMvc.perform(post("/api/v1/my-maps/{mapId}/stores/{storeId}", mapBId, storeId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.inMyMap").value(true));
+
+        mockMvc.perform(post("/api/v1/my-maps/{mapId}/stores/{storeId}", mapAId, storeId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.error.code").value("MY_MAP_PLACE_ALREADY_EXISTS"));
+
+        mockMvc.perform(delete("/api/v1/my-maps/{mapId}/stores/{storeId}", mapAId, storeId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.inMyMap").value(false));
+
+        mockMvc.perform(post("/api/v1/my-maps/{mapId}/stores/{storeId}", mapAId, storeId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.inMyMap").value(true));
+    }
+
+    @Test
     void favoriteEndpointsShouldRequireAuthenticationAndWorkWithJwt() throws Exception {
         String accessToken = signupAndLoginMember("tester@toggle.com");
         Long storeId = createStore("favorite-target", "찜 대상", "음식점", "37.4980950", "127.0276100");

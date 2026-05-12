@@ -111,6 +111,100 @@ class UserMapServiceTest {
     }
 
     @Test
+    void addStoreToMapShouldAllowSameStoreAcrossDifferentMapsAndRejectSameMapDuplicate() {
+        UserMapService service = new UserMapService(
+            authService,
+            userRepository,
+            userMapRepository,
+            userMapLikeRepository,
+            myMapStoreRepository,
+            myMapPublicInstitutionRepository,
+            storeRepository,
+            publicInstitutionRepository
+        );
+
+        User currentUser = new User("owner@test.com", "password", "owner", UserRole.USER, UserStatus.ACTIVE);
+        ReflectionTestUtils.setField(currentUser, "id", 1L);
+
+        UserMap mapA = buildMap(currentUser, 20L, true, "uuid-a");
+        UserMap mapB = buildMap(currentUser, 21L, true, "uuid-b");
+
+        Store store = new Store(
+            ExternalSource.KAKAO,
+            "store-101",
+            "공통 저장 대상",
+            "02-123-4567",
+            "서울시 테스트구 테스트로 1",
+            "서울시 테스트구 테스트로 1",
+            new BigDecimal("37.1234567"),
+            new BigDecimal("127.1234567")
+        );
+        ReflectionTestUtils.setField(store, "id", 101L);
+        store.markVerified("서울시 테스트구 테스트로 1", "서울시 테스트구 테스트로 1", "카페", "{}", null);
+
+        when(authService.getAuthenticatedUser()).thenReturn(currentUser);
+        when(userMapRepository.findByIdAndOwnerUserIdAndDeletedAtIsNull(20L, 1L)).thenReturn(Optional.of(mapA));
+        when(userMapRepository.findByIdAndOwnerUserIdAndDeletedAtIsNull(21L, 1L)).thenReturn(Optional.of(mapB));
+        when(storeRepository.findByIdAndDeletedAtIsNull(101L)).thenReturn(Optional.of(store));
+        when(myMapStoreRepository.save(any(MyMapStore.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        when(myMapStoreRepository.existsByMapIdAndStoreId(20L, 101L)).thenReturn(false);
+        when(myMapStoreRepository.existsByMapIdAndStoreId(21L, 101L)).thenReturn(false);
+
+        assertThat(service.addStoreToMap(20L, 101L, currentUser).inMyMap()).isTrue();
+        assertThat(service.addStoreToMap(21L, 101L, currentUser).inMyMap()).isTrue();
+
+        when(myMapStoreRepository.existsByMapIdAndStoreId(20L, 101L)).thenReturn(true);
+        assertThatThrownBy(() -> service.addStoreToMap(20L, 101L, currentUser))
+            .isInstanceOf(ApiException.class)
+            .satisfies(throwable -> {
+                ApiException ex = (ApiException) throwable;
+                assertThat(ex.getStatus()).isEqualTo(HttpStatus.CONFLICT);
+                assertThat(ex.getCode()).isEqualTo("MY_MAP_PLACE_ALREADY_EXISTS");
+            });
+    }
+
+    @Test
+    void addStoreToMapShouldAllowAnotherUsersOwnMap() {
+        UserMapService service = new UserMapService(
+            authService,
+            userRepository,
+            userMapRepository,
+            userMapLikeRepository,
+            myMapStoreRepository,
+            myMapPublicInstitutionRepository,
+            storeRepository,
+            publicInstitutionRepository
+        );
+
+        User owner = new User("other-owner@test.com", "password", "other-owner", UserRole.USER, UserStatus.ACTIVE);
+        ReflectionTestUtils.setField(owner, "id", 2L);
+
+        UserMap map = buildMap(owner, 30L, true, "uuid-other");
+
+        Store store = new Store(
+            ExternalSource.KAKAO,
+            "store-202",
+            "다른 유저의 지도 대상",
+            "02-123-4567",
+            "서울시 테스트구 테스트로 2",
+            "서울시 테스트구 테스트로 2",
+            new BigDecimal("37.2234567"),
+            new BigDecimal("127.2234567")
+        );
+        ReflectionTestUtils.setField(store, "id", 202L);
+        store.markVerified("서울시 테스트구 테스트로 2", "서울시 테스트구 테스트로 2", "카페", "{}", null);
+
+        when(authService.getAuthenticatedUser()).thenReturn(owner);
+        when(userMapRepository.findByIdAndOwnerUserIdAndDeletedAtIsNull(30L, 2L)).thenReturn(Optional.of(map));
+        when(storeRepository.findByIdAndDeletedAtIsNull(202L)).thenReturn(Optional.of(store));
+        when(myMapStoreRepository.existsByMapIdAndStoreId(30L, 202L)).thenReturn(false);
+        when(myMapStoreRepository.save(any(MyMapStore.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        assertThat(service.addStoreToMap(30L, 202L, owner).inMyMap()).isTrue();
+    }
+
+    @Test
     void deleteMyMapShouldRemoveChildrenAndPromoteReplacement() {
         UserMapService service = new UserMapService(
             authService,

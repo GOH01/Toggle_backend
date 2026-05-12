@@ -14,7 +14,7 @@ import jakarta.persistence.UniqueConstraint;
 @Table(
     name = "my_map_public_institutions",
     uniqueConstraints = {
-        @UniqueConstraint(name = "uk_my_map_publics_user_pi", columnNames = {"user_id", "public_institution_id"})
+        @UniqueConstraint(name = "uk_my_map_publics_map_pi", columnNames = {"map_id", "public_institution_id"})
     }
 )
 public class MyMapPublicInstitution extends BaseTimeEntity {

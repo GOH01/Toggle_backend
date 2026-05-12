@@ -8,16 +8,11 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface MyMapPublicInstitutionRepository extends JpaRepository<MyMapPublicInstitution, Long> {
 
-    boolean existsByUserIdAndPublicInstitutionId(Long userId, Long publicInstitutionId);
-
     boolean existsByMapIdAndPublicInstitutionId(Long mapId, Long publicInstitutionId);
-
-    Optional<MyMapPublicInstitution> findByUserIdAndPublicInstitutionId(Long userId, Long publicInstitutionId);
 
     Optional<MyMapPublicInstitution> findByMapIdAndPublicInstitutionId(Long mapId, Long publicInstitutionId);
 
-    @EntityGraph(attributePaths = "publicInstitution")
-    List<MyMapPublicInstitution> findAllByUserIdOrderByCreatedAtDesc(Long userId);
+    Optional<MyMapPublicInstitution> findByUserIdAndMapIsNullAndPublicInstitutionId(Long userId, Long publicInstitutionId);
 
     @EntityGraph(attributePaths = "publicInstitution")
     List<MyMapPublicInstitution> findAllByUserIdAndMapIsNullOrderByCreatedAtDesc(Long userId);
@@ -25,7 +20,7 @@ public interface MyMapPublicInstitutionRepository extends JpaRepository<MyMapPub
     @EntityGraph(attributePaths = "publicInstitution")
     List<MyMapPublicInstitution> findAllByMapIdOrderByCreatedAtDesc(Long mapId);
 
-    long countByUserId(Long userId);
+    long countByMapId(Long mapId);
 
     void deleteAllByMapId(Long mapId);
 }

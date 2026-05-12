@@ -8,16 +8,11 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface MyMapStoreRepository extends JpaRepository<MyMapStore, Long> {
 
-    boolean existsByUserIdAndStoreId(Long userId, Long storeId);
-
     boolean existsByMapIdAndStoreId(Long mapId, Long storeId);
-
-    Optional<MyMapStore> findByUserIdAndStoreId(Long userId, Long storeId);
 
     Optional<MyMapStore> findByMapIdAndStoreId(Long mapId, Long storeId);
 
-    @EntityGraph(attributePaths = "store")
-    List<MyMapStore> findAllByUserIdAndStoreDeletedAtIsNullOrderByCreatedAtDesc(Long userId);
+    Optional<MyMapStore> findByUserIdAndMapIsNullAndStoreId(Long userId, Long storeId);
 
     @EntityGraph(attributePaths = "store")
     List<MyMapStore> findAllByUserIdAndMapIsNullOrderByCreatedAtDesc(Long userId);
@@ -25,9 +20,10 @@ public interface MyMapStoreRepository extends JpaRepository<MyMapStore, Long> {
     @EntityGraph(attributePaths = "store")
     List<MyMapStore> findAllByMapIdOrderByCreatedAtDesc(Long mapId);
 
-    long countByUserIdAndStoreDeletedAtIsNull(Long userId);
+    @EntityGraph(attributePaths = "store")
+    List<MyMapStore> findAllByMapIdAndStoreDeletedAtIsNullOrderByCreatedAtDesc(Long mapId);
 
-    long countByUserId(Long userId);
+    long countByMapIdAndStoreDeletedAtIsNull(Long mapId);
 
     void deleteAllByMapId(Long mapId);
 }
