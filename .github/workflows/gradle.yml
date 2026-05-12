@@ -76,7 +76,7 @@ jobs:
         run: |
           ssh-keyscan -H ${{ secrets.SERVER_IP }} >> ~/.ssh/known_hosts
       - name: SCP transfer
-        run: scp -o StrictHostKeyChecking=no *-SNAPSHOT.jar ${{ secrets.SSH_USER }}@${{ secrets.SERVER_IP }}:/home/ubuntu/backend
+        run: scp -o StrictHostKeyChecking=no *-SNAPSHOT.jar ${{ secrets.SSH_USER }}@${{ secrets.SERVER_IP }}:/home/ubuntu/toggle
       # - name: Kill process using port 8081 (if exists)
       #   run: |
       #     ssh ${{ secrets.SSH_USER }}@${{ secrets.SERVER_IP }} "
