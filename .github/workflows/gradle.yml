@@ -90,5 +90,5 @@ jobs:
         run: |
           ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SERVER_IP }} "
             sudo fuser -k 8085/tcp || true
-            cd /home/ubuntu/backend || exit 1
+            cd /home/ubuntu/toggle || exit 1
             nohup java -jar *-SNAPSHOT.jar --spring.profiles.active=build --server.port=8085 > nohup.out 2>&1 &"
