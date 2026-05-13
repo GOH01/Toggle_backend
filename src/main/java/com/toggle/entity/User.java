@@ -126,6 +126,18 @@ public class User extends BaseTimeEntity {
         return profileImageUrl;
     }
 
+    public void updateNickname(String nickname) {
+        this.nickname = nickname;
+    }
+
+    public void changePassword(String password) {
+        this.password = password;
+    }
+
+    public void updateProfileImageUrl(String profileImageUrl) {
+        this.profileImageUrl = profileImageUrl;
+    }
+
     public void changeStatus(UserStatus status) {
         this.status = status;
     }

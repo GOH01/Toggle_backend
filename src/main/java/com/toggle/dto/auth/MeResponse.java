@@ -7,6 +7,7 @@ public record MeResponse(
     String email,
     String nickname,
     String displayName,
+    String profileImageUrl,
     String role,
     String status,
     Favorites favorites,

@@ -181,6 +181,8 @@ public class S3FileService {
             case "menu" -> new UploadPolicy("menu", IMAGE_CONTENT_TYPES, FIVE_MB, "메뉴 이미지");
             case "review" -> new UploadPolicy("review", IMAGE_CONTENT_TYPES, FIVE_MB, "리뷰 이미지");
             case "store" -> new UploadPolicy("store", IMAGE_CONTENT_TYPES, FIVE_MB, "매장 이미지");
+            case "user_profile" -> new UploadPolicy("user_profile", IMAGE_CONTENT_TYPES, FIVE_MB, "유저 프로필 이미지");
+            case "map_profile" -> new UploadPolicy("map_profile", IMAGE_CONTENT_TYPES, FIVE_MB, "지도 프로필 이미지");
             default -> throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_UPLOAD_DIRECTORY", "지원하지 않는 업로드 경로입니다.");
         };
     }

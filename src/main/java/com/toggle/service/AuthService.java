@@ -2,12 +2,16 @@ package com.toggle.service;
 
 import com.toggle.dto.auth.AuthTokenResponse;
 import com.toggle.dto.auth.AuthUserResponse;
+import com.toggle.dto.auth.ChangePasswordRequest;
+import com.toggle.dto.auth.SimpleMessageResponse;
 import com.toggle.dto.auth.LogoutResponse;
 import com.toggle.dto.auth.LoginRequest;
 import com.toggle.dto.auth.MeResponse;
 import com.toggle.dto.auth.RefreshTokenRequest;
 import com.toggle.dto.auth.SignupRequest;
 import com.toggle.dto.auth.SignupResponse;
+import com.toggle.dto.auth.UpdateNicknameRequest;
+import com.toggle.dto.auth.UserProfileResponse;
 import com.toggle.dto.user.UpdateMyMapProfileRequest;
 import com.toggle.entity.User;
 import com.toggle.entity.UserRole;
@@ -15,14 +19,17 @@ import com.toggle.entity.UserStatus;
 import com.toggle.entity.UserMap;
 import com.toggle.global.config.JwtProperties;
 import com.toggle.global.exception.ApiException;
+import com.toggle.global.util.ImageUrlMapper;
 import com.toggle.global.security.CustomUserPrincipal;
 import com.toggle.global.security.JwtTokenProvider;
 import com.toggle.repository.FavoriteRepository;
 import com.toggle.repository.PublicFavoriteRepository;
 import com.toggle.repository.UserMapRepository;
 import com.toggle.repository.UserRepository;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -33,6 +40,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 @Service
 public class AuthService {
@@ -41,6 +49,7 @@ public class AuthService {
     private final FavoriteRepository favoriteRepository;
     private final PublicFavoriteRepository publicFavoriteRepository;
     private final UserMapRepository userMapRepository;
+    private final S3FileService s3FileService;
     private final PasswordEncoder passwordEncoder;
     private final AuthenticationManager authenticationManager;
     private final JwtTokenProvider jwtTokenProvider;
@@ -51,6 +60,7 @@ public class AuthService {
         FavoriteRepository favoriteRepository,
         PublicFavoriteRepository publicFavoriteRepository,
         UserMapRepository userMapRepository,
+        S3FileService s3FileService,
         PasswordEncoder passwordEncoder,
         AuthenticationManager authenticationManager,
         JwtTokenProvider jwtTokenProvider,
@@ -60,6 +70,7 @@ public class AuthService {
         this.favoriteRepository = favoriteRepository;
         this.publicFavoriteRepository = publicFavoriteRepository;
         this.userMapRepository = userMapRepository;
+        this.s3FileService = s3FileService;
         this.passwordEncoder = passwordEncoder;
         this.authenticationManager = authenticationManager;
         this.jwtTokenProvider = jwtTokenProvider;
@@ -146,11 +157,70 @@ public class AuthService {
             user.getEmail(),
             user.getNickname(),
             resolveDisplayName(user),
+            user.getProfileImageUrl(),
             user.getRole().name(),
             user.getStatus().name(),
             new MeResponse.Favorites(getFavoriteStoreIds(user), getFavoritePublicIds(user)),
             buildMapProfile(user)
         );
+    }
+
+    @Transactional
+    public UserProfileResponse updateNickname(UpdateNicknameRequest request) {
+        User user = getAuthenticatedUser();
+        String nickname = normalizeNickname(request.nickname());
+
+        if (!Objects.equals(user.getNickname(), nickname) && userRepository.existsByNicknameAndIdNot(nickname, user.getId())) {
+            throw new ApiException(HttpStatus.CONFLICT, "NICKNAME_ALREADY_EXISTS", "이미 사용 중인 닉네임입니다.");
+        }
+
+        user.updateNickname(nickname);
+        userRepository.save(user);
+        return new UserProfileResponse(user.getId(), user.getNickname(), user.getProfileImageUrl());
+    }
+
+    @Transactional
+    public UserProfileResponse updateProfileImage(MultipartFile profileImage) {
+        User user = getAuthenticatedUser();
+        String previousProfileImageUrl = user.getProfileImageUrl();
+        String previousDefaultMapProfileImageUrl = user.getDefaultMapId() == null
+            ? null
+            : userMapRepository.findByIdAndDeletedAtIsNull(user.getDefaultMapId())
+                .map(UserMap::getProfileImageUrl)
+                .orElse(null);
+
+        S3FileService.StoredFile storedFile = s3FileService.uploadFile(profileImage, "user_profile");
+        user.updateProfileImageUrl(storedFile.url());
+        userRepository.save(user);
+
+        List<String> keysToDelete = new ArrayList<>();
+        addObjectKey(keysToDelete, previousProfileImageUrl);
+        addObjectKey(keysToDelete, previousDefaultMapProfileImageUrl);
+        deleteAfterCommitDistinct(keysToDelete, storedFile.key());
+
+        syncDefaultMapProfileImage(user, storedFile.url());
+        return new UserProfileResponse(user.getId(), user.getNickname(), user.getProfileImageUrl());
+    }
+
+    @Transactional
+    public SimpleMessageResponse changePassword(ChangePasswordRequest request) {
+        User user = getAuthenticatedUser();
+        if (!passwordEncoder.matches(request.currentPassword(), user.getPassword())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_CURRENT_PASSWORD", "현재 비밀번호가 올바르지 않습니다.");
+        }
+
+        user.changePassword(passwordEncoder.encode(request.newPassword()));
+        userRepository.save(user);
+        return new SimpleMessageResponse("비밀번호가 변경되었습니다.");
+    }
+
+    @Transactional
+    public SimpleMessageResponse deactivateCurrentUser() {
+        User user = getAuthenticatedUser();
+        user.changeStatus(UserStatus.INACTIVE);
+        userRepository.save(user);
+        SecurityContextHolder.clearContext();
+        return new SimpleMessageResponse("회원 탈퇴가 완료되었습니다.");
     }
 
     @Transactional
@@ -197,6 +267,7 @@ public class AuthService {
                 principal.getUsername(),
                 user.getNickname(),
                 resolveDisplayName(user),
+                user.getProfileImageUrl(),
                 principal.getAuthorities().iterator().next().getAuthority().replace("ROLE_", ""),
                 principal.getStatus()
             )
@@ -335,6 +406,43 @@ public class AuthService {
     private void syncUserMapBridge(User user, UserMap map) {
         user.updateMapProfile(map.isPublic(), map.getTitle(), map.getDescription(), map.getProfileImageUrl());
         user.setPublicMapUuid(map.getPublicMapUuid());
+    }
+
+    private void syncDefaultMapProfileImage(User user, String profileImageUrl) {
+        if (user.getDefaultMapId() == null) {
+            return;
+        }
+
+        userMapRepository.findByIdAndDeletedAtIsNull(user.getDefaultMapId()).ifPresent(defaultMap -> {
+            defaultMap.update(defaultMap.isPublic(), defaultMap.getTitle(), defaultMap.getDescription(), profileImageUrl);
+            userMapRepository.save(defaultMap);
+        });
+    }
+
+    private String normalizeNickname(String nickname) {
+        String normalized = normalizeNullableText(nickname);
+        if (normalized == null || normalized.length() < 2 || normalized.length() > 30) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_NICKNAME", "닉네임은 2자 이상 30자 이하여야 합니다.");
+        }
+        return normalized;
+    }
+
+    private void addObjectKey(List<String> keys, String url) {
+        String objectKey = ImageUrlMapper.toObjectKey(url);
+        if (objectKey != null && !objectKey.isBlank()) {
+            keys.add(objectKey);
+        }
+    }
+
+    private void deleteAfterCommitDistinct(List<String> candidateKeys, String newKey) {
+        List<String> keysToDelete = candidateKeys.stream()
+            .filter(Objects::nonNull)
+            .map(String::trim)
+            .filter(key -> !key.isBlank())
+            .filter(key -> !key.equals(newKey))
+            .distinct()
+            .toList();
+        s3FileService.deleteFilesAfterCommit(keysToDelete);
     }
 
     private User requireActiveUser(Long userId) {

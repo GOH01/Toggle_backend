@@ -10,9 +10,11 @@ import com.toggle.dto.owner.OwnerLinkedStoreResponse;
 import com.toggle.dto.owner.OwnerStoreProfileUpdateRequest;
 import com.toggle.dto.owner.OwnerStoreStatusResponse;
 import com.toggle.dto.owner.OwnerStoreStatusUpdateRequest;
+import com.toggle.dto.store.StoreDetailResponse;
 import com.toggle.global.exception.ApiException;
 import com.toggle.global.response.ApiResponse;
 import com.toggle.service.AuthService;
+import com.toggle.service.StoreDetailService;
 import com.toggle.service.OwnerApplicationService;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
@@ -38,17 +40,20 @@ public class OwnerApplicationController {
 
     private final OwnerApplicationService ownerApplicationService;
     private final AuthService authService;
+    private final StoreDetailService storeDetailService;
     private final ObjectMapper objectMapper;
     private final Validator validator;
 
     public OwnerApplicationController(
         OwnerApplicationService ownerApplicationService,
         AuthService authService,
+        StoreDetailService storeDetailService,
         ObjectMapper objectMapper,
         Validator validator
     ) {
         this.ownerApplicationService = ownerApplicationService;
         this.authService = authService;
+        this.storeDetailService = storeDetailService;
         this.objectMapper = objectMapper;
         this.validator = validator;
     }
@@ -87,6 +92,11 @@ public class OwnerApplicationController {
     @GetMapping("/stores")
     public ApiResponse<List<OwnerLinkedStoreResponse>> listMyStores() {
         return ApiResponse.ok(ownerApplicationService.listLinkedStores(authService.getAuthenticatedUser().getId()));
+    }
+
+    @GetMapping("/stores/{storeId}")
+    public ApiResponse<StoreDetailResponse> getMyStoreDetail(@PathVariable Long storeId) {
+        return ApiResponse.ok(storeDetailService.getMyStoreDetail(authService.getAuthenticatedUser(), storeId));
     }
 
     @PostMapping("/stores/{storeId}/status")

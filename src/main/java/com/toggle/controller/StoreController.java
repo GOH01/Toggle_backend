@@ -2,10 +2,12 @@ package com.toggle.controller;
 
 import com.toggle.dto.store.ResolveStoreRequest;
 import com.toggle.dto.store.ResolveStoreResponse;
+import com.toggle.dto.store.StoreDetailResponse;
 import com.toggle.dto.store.StoreLookupRequest;
 import com.toggle.dto.store.StoreLookupResponse;
 import com.toggle.global.response.ApiResponse;
 import com.toggle.service.AuthService;
+import com.toggle.service.StoreDetailService;
 import com.toggle.service.StoreService;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -23,10 +25,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class StoreController {
 
     private final StoreService storeService;
+    private final StoreDetailService storeDetailService;
     private final AuthService authService;
 
-    public StoreController(StoreService storeService, AuthService authService) {
+    public StoreController(StoreService storeService, StoreDetailService storeDetailService, AuthService authService) {
         this.storeService = storeService;
+        this.storeDetailService = storeDetailService;
         this.authService = authService;
     }
 
@@ -53,6 +57,11 @@ public class StoreController {
         @RequestParam(defaultValue = "30") int limit
     ) {
         return ApiResponse.ok(storeService.getNearbyVerifiedStores(latitude, longitude, radiusMeters, limit));
+    }
+
+    @GetMapping("/{storeId}")
+    public ApiResponse<StoreDetailResponse> getStoreDetail(@PathVariable Long storeId) {
+        return ApiResponse.ok(storeDetailService.getStoreDetail(storeId));
     }
 
     @DeleteMapping("/{storeId}")

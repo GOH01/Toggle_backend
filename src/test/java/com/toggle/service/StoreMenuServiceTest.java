@@ -223,7 +223,10 @@ class StoreMenuServiceTest {
             closureRequestStatus,
             menuEligible,
             menuEditable,
-            menuEligibilityReason
+            menuEligibilityReason,
+            false,
+            false,
+            null
         );
     }
 }

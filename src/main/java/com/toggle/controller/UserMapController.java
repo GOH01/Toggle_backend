@@ -2,6 +2,7 @@ package com.toggle.controller;
 
 import com.toggle.dto.map.MapLikeResponse;
 import com.toggle.dto.map.PublicMapListResponse;
+import com.toggle.dto.map.UpdateUserMapMetadataRequest;
 import com.toggle.dto.map.UserMapDetailResponse;
 import com.toggle.dto.map.UserMapSummaryResponse;
 import com.toggle.dto.map.UserMapUpsertRequest;
@@ -14,12 +15,16 @@ import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RequestPart;
+import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping("/api/v1")
@@ -58,6 +63,24 @@ public class UserMapController {
     ) {
         User user = authService.getAuthenticatedUser();
         return ApiResponse.ok(userMapService.updateMyMap(mapId, user, request));
+    }
+
+    @PatchMapping("/maps/{mapId}")
+    public ApiResponse<UserMapSummaryResponse> updateMapMetadata(
+        @PathVariable Long mapId,
+        @Valid @RequestBody UpdateUserMapMetadataRequest request
+    ) {
+        User user = authService.getAuthenticatedUser();
+        return ApiResponse.ok(userMapService.updateMyMapMetadata(mapId, user, request));
+    }
+
+    @PatchMapping(value = "/maps/{mapId}/profile-image", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ApiResponse<UserMapSummaryResponse> updateMapProfileImage(
+        @PathVariable Long mapId,
+        @RequestPart("profileImage") MultipartFile profileImage
+    ) {
+        User user = authService.getAuthenticatedUser();
+        return ApiResponse.ok(userMapService.updateMyMapProfileImage(mapId, user, profileImage));
     }
 
     @DeleteMapping("/my-maps/{mapId}")

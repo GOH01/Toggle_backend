@@ -72,6 +72,8 @@ class StoreServiceTest {
             boolean ownerLinked = invocation.getArgument(1);
             boolean menuEligible = supportsMenus(store) && store.isVerified() && !store.isDeleted();
             boolean menuEditable = menuEligible && ownerLinked;
+            boolean priceItemEligible = !supportsMenus(store) && store.isVerified() && !store.isDeleted();
+            boolean priceItemEditable = priceItemEligible && ownerLinked;
             String menuEligibilityReason = !store.isVerified()
                 ? "STORE_NOT_REGISTERED"
                 : store.isDeleted()
@@ -79,12 +81,22 @@ class StoreServiceTest {
                     : !supportsMenus(store)
                         ? "MENU_CATEGORY_NOT_SUPPORTED"
                         : null;
+            String priceItemEligibilityReason = !store.isVerified()
+                ? "STORE_NOT_REGISTERED"
+                : store.isDeleted()
+                    ? "STORE_INACTIVE"
+                    : supportsMenus(store)
+                        ? "PRICE_ITEM_CATEGORY_NOT_SUPPORTED"
+                        : null;
             return new StoreEligibilityService.StoreEligibilitySnapshot(
                 store.isDeleted() ? "INACTIVE" : "ACTIVE",
                 null,
                 menuEligible,
                 menuEditable,
-                menuEligibilityReason
+                menuEligibilityReason,
+                priceItemEligible,
+                priceItemEditable,
+                priceItemEligibilityReason
             );
         });
     }

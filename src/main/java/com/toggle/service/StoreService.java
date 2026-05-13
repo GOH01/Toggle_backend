@@ -154,7 +154,10 @@ public class StoreService {
                     eligibility.closureRequestStatus(),
                     eligibility.menuEligible(),
                     eligibility.menuEditable(),
-                    eligibility.menuEligibilityReason()
+                    eligibility.menuEligibilityReason(),
+                    eligibility.priceItemEligible(),
+                    eligibility.priceItemEditable(),
+                    eligibility.priceItemEligibilityReason()
                 );
             })
             .toList();
@@ -350,7 +353,10 @@ public class StoreService {
             eligibility.closureRequestStatus(),
             eligibility.menuEligible(),
             eligibility.menuEditable(),
-            eligibility.menuEligibilityReason()
+            eligibility.menuEligibilityReason(),
+            eligibility.priceItemEligible(),
+            eligibility.priceItemEditable(),
+            eligibility.priceItemEligibilityReason()
         );
     }
 
@@ -377,7 +383,10 @@ public class StoreService {
             eligibility.closureRequestStatus(),
             eligibility.menuEligible(),
             eligibility.menuEditable(),
-            eligibility.menuEligibilityReason()
+            eligibility.menuEligibilityReason(),
+            eligibility.priceItemEligible(),
+            eligibility.priceItemEditable(),
+            eligibility.priceItemEligibilityReason()
         );
     }
 

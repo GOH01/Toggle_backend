@@ -22,6 +22,9 @@ public record OwnerLinkedStoreResponse(
     String closureRequestStatus,
     boolean menuEligible,
     boolean menuEditable,
-    String menuEligibilityReason
+    String menuEligibilityReason,
+    boolean priceItemEligible,
+    boolean priceItemEditable,
+    String priceItemEligibilityReason
 ) {
 }

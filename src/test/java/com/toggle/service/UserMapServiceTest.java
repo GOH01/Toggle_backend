@@ -8,6 +8,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.toggle.dto.map.PublicMapListResponse;
+import com.toggle.dto.map.UpdateUserMapMetadataRequest;
 import com.toggle.dto.map.UserMapSummaryResponse;
 import com.toggle.dto.map.UserMapUpsertRequest;
 import com.toggle.entity.ExternalSource;
@@ -38,6 +39,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.http.HttpStatus;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -69,6 +71,9 @@ class UserMapServiceTest {
     @Mock
     private PublicInstitutionRepository publicInstitutionRepository;
 
+    @Mock
+    private S3FileService s3FileService;
+
     @Test
     void createMyMapShouldAllowMultipleMapsForOneUser() {
         UserMapService service = new UserMapService(
@@ -79,7 +84,8 @@ class UserMapServiceTest {
             myMapStoreRepository,
             myMapPublicInstitutionRepository,
             storeRepository,
-            publicInstitutionRepository
+            publicInstitutionRepository,
+            s3FileService
         );
 
         User user = new User("user@test.com", "password", "tester", UserRole.USER, UserStatus.ACTIVE);
@@ -120,7 +126,8 @@ class UserMapServiceTest {
             myMapStoreRepository,
             myMapPublicInstitutionRepository,
             storeRepository,
-            publicInstitutionRepository
+            publicInstitutionRepository,
+            s3FileService
         );
 
         User currentUser = new User("owner@test.com", "password", "owner", UserRole.USER, UserStatus.ACTIVE);
@@ -174,7 +181,8 @@ class UserMapServiceTest {
             myMapStoreRepository,
             myMapPublicInstitutionRepository,
             storeRepository,
-            publicInstitutionRepository
+            publicInstitutionRepository,
+            s3FileService
         );
 
         User owner = new User("other-owner@test.com", "password", "other-owner", UserRole.USER, UserStatus.ACTIVE);
@@ -214,7 +222,8 @@ class UserMapServiceTest {
             myMapStoreRepository,
             myMapPublicInstitutionRepository,
             storeRepository,
-            publicInstitutionRepository
+            publicInstitutionRepository,
+            s3FileService
         );
 
         User user = new User("owner@test.com", "password", "owner", UserRole.USER, UserStatus.ACTIVE);
@@ -244,7 +253,8 @@ class UserMapServiceTest {
             myMapStoreRepository,
             myMapPublicInstitutionRepository,
             storeRepository,
-            publicInstitutionRepository
+            publicInstitutionRepository,
+            s3FileService
         );
 
         User currentUser = new User("current@test.com", "password", "current", UserRole.USER, UserStatus.ACTIVE);
@@ -273,7 +283,8 @@ class UserMapServiceTest {
             myMapStoreRepository,
             myMapPublicInstitutionRepository,
             storeRepository,
-            publicInstitutionRepository
+            publicInstitutionRepository,
+            s3FileService
         );
 
         User currentUser = new User("user@test.com", "password", "tester", UserRole.USER, UserStatus.ACTIVE);
@@ -304,7 +315,8 @@ class UserMapServiceTest {
             myMapStoreRepository,
             myMapPublicInstitutionRepository,
             storeRepository,
-            publicInstitutionRepository
+            publicInstitutionRepository,
+            s3FileService
         );
 
         User currentUser = new User("user@test.com", "password", "tester", UserRole.USER, UserStatus.ACTIVE);
@@ -333,7 +345,8 @@ class UserMapServiceTest {
             myMapStoreRepository,
             myMapPublicInstitutionRepository,
             storeRepository,
-            publicInstitutionRepository
+            publicInstitutionRepository,
+            s3FileService
         );
 
         User currentUser = new User("user@test.com", "password", "tester", UserRole.USER, UserStatus.ACTIVE);
@@ -365,7 +378,8 @@ class UserMapServiceTest {
             myMapStoreRepository,
             myMapPublicInstitutionRepository,
             storeRepository,
-            publicInstitutionRepository
+            publicInstitutionRepository,
+            s3FileService
         );
 
         User owner1 = new User("owner1@test.com", "password", "alpha", UserRole.USER, UserStatus.ACTIVE);
@@ -399,7 +413,8 @@ class UserMapServiceTest {
             myMapStoreRepository,
             myMapPublicInstitutionRepository,
             storeRepository,
-            publicInstitutionRepository
+            publicInstitutionRepository,
+            s3FileService
         );
 
         User owner = new User("owner@test.com", "password", "owner", UserRole.USER, UserStatus.ACTIVE);
@@ -426,7 +441,8 @@ class UserMapServiceTest {
             myMapStoreRepository,
             myMapPublicInstitutionRepository,
             storeRepository,
-            publicInstitutionRepository
+            publicInstitutionRepository,
+            s3FileService
         );
 
         User owner = new User("owner@test.com", "password", "owner", UserRole.USER, UserStatus.ACTIVE);
@@ -442,6 +458,80 @@ class UserMapServiceTest {
                 assertThat(ex.getStatus()).isEqualTo(HttpStatus.NOT_FOUND);
                 assertThat(ex.getCode()).isEqualTo("MAP_NOT_FOUND");
             });
+    }
+
+    @Test
+    void updateMyMapMetadataShouldPersistNameAndDescriptionForOwner() {
+        UserMapService service = new UserMapService(
+            authService,
+            userRepository,
+            userMapRepository,
+            userMapLikeRepository,
+            myMapStoreRepository,
+            myMapPublicInstitutionRepository,
+            storeRepository,
+            publicInstitutionRepository,
+            s3FileService
+        );
+
+        User user = new User("owner@test.com", "password", "owner", UserRole.USER, UserStatus.ACTIVE);
+        ReflectionTestUtils.setField(user, "id", 1L);
+        ReflectionTestUtils.setField(user, "defaultMapId", 101L);
+        when(authService.getAuthenticatedUser()).thenReturn(user);
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        UserMap map = buildMap(user, 101L, true, "uuid-101");
+        when(userMapRepository.findByIdAndOwnerUserIdAndDeletedAtIsNull(101L, 1L)).thenReturn(Optional.of(map));
+        when(userMapRepository.save(any(UserMap.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(userMapLikeRepository.countByMapId(101L)).thenReturn(0L);
+
+        UserMapSummaryResponse response = service.updateMyMapMetadata(
+            101L,
+            user,
+            new UpdateUserMapMetadataRequest("카페 투어 지도", "주말 모음")
+        );
+
+        assertThat(response.title()).isEqualTo("카페 투어 지도");
+        assertThat(response.description()).isEqualTo("주말 모음");
+        assertThat(user.getMapTitle()).isEqualTo("카페 투어 지도");
+    }
+
+    @Test
+    void updateMyMapProfileImageShouldPersistImageAndSyncPrimaryMap() {
+        UserMapService service = new UserMapService(
+            authService,
+            userRepository,
+            userMapRepository,
+            userMapLikeRepository,
+            myMapStoreRepository,
+            myMapPublicInstitutionRepository,
+            storeRepository,
+            publicInstitutionRepository,
+            s3FileService
+        );
+
+        User user = new User("owner@test.com", "password", "owner", UserRole.USER, UserStatus.ACTIVE);
+        ReflectionTestUtils.setField(user, "id", 1L);
+        ReflectionTestUtils.setField(user, "defaultMapId", 101L);
+        ReflectionTestUtils.setField(user, "profileImageUrl", "/api/v1/files/view?key=map_profile%2Fold.png");
+        when(authService.getAuthenticatedUser()).thenReturn(user);
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        UserMap map = buildMap(user, 101L, true, "uuid-101");
+        ReflectionTestUtils.setField(map, "profileImageUrl", "/api/v1/files/view?key=map_profile%2Fold.png");
+        when(userMapRepository.findByIdAndOwnerUserIdAndDeletedAtIsNull(101L, 1L)).thenReturn(Optional.of(map));
+        when(userMapRepository.save(any(UserMap.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(userMapLikeRepository.countByMapId(101L)).thenReturn(0L);
+        when(s3FileService.uploadFile(any(MockMultipartFile.class), org.mockito.ArgumentMatchers.eq("map_profile")))
+            .thenReturn(new S3FileService.StoredFile("/api/v1/files/view?key=map_profile%2Fnew.png", "map_profile/new.png"));
+
+        UserMapSummaryResponse response = service.updateMyMapProfileImage(
+            101L,
+            user,
+            new MockMultipartFile("profileImage", "new.png", "image/png", new byte[] {1, 2, 3})
+        );
+
+        assertThat(response.profileImageUrl()).contains("map_profile");
+        assertThat(user.getProfileImageUrl()).contains("map_profile");
+        verify(s3FileService).deleteFilesAfterCommit(List.of("map_profile/old.png"));
     }
 
     private UserMap buildMap(User owner, Long id, boolean isPublic, String publicMapUuid) {

@@ -58,7 +58,10 @@ class MobileSearchServiceTest {
                 null,
                 true,
                 true,
-                null
+                null,
+                false,
+                false,
+                "PRICE_ITEM_CATEGORY_NOT_SUPPORTED"
             ))
         ));
         when(publicInstitutionService.lookupInstitutions(any(PublicInstitutionLookupRequest.class))).thenReturn(new PublicInstitutionLookupResponse(

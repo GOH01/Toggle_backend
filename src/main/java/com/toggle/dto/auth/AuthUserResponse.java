@@ -5,6 +5,7 @@ public record AuthUserResponse(
     String email,
     String nickname,
     String displayName,
+    String profileImageUrl,
     String role,
     String status
 ) {

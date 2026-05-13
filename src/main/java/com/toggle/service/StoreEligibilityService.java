@@ -15,6 +15,10 @@ public class StoreEligibilityService {
     private static final String MENU_NOT_ACTIVE_REASON = "STORE_INACTIVE";
     private static final String MENU_NOT_SUPPORTED_REASON = "MENU_CATEGORY_NOT_SUPPORTED";
     private static final String MENU_EDITING_DISABLED_REASON = "CLOSURE_REQUEST_PENDING";
+    private static final String PRICE_ITEM_NOT_REGISTERED_REASON = "STORE_NOT_REGISTERED";
+    private static final String PRICE_ITEM_NOT_ACTIVE_REASON = "STORE_INACTIVE";
+    private static final String PRICE_ITEM_NOT_SUPPORTED_REASON = "PRICE_ITEM_CATEGORY_NOT_SUPPORTED";
+    private static final String PRICE_ITEM_EDITING_DISABLED_REASON = "CLOSURE_REQUEST_PENDING";
 
     private final StoreClosureRequestRepository storeClosureRequestRepository;
 
@@ -29,13 +33,36 @@ public class StoreEligibilityService {
         boolean menuEligible = store.isVerified() && !store.isDeleted() && supportsMenus(store);
         boolean menuEditable = menuEligible && ownerLinked && operationalState == StoreOperationalState.ACTIVE;
         String menuEligibilityReason = resolveMenuEligibilityReason(store, ownerLinked, operationalState, menuEditable);
+        boolean priceItemEligible = store.isVerified() && !store.isDeleted() && supportsPriceItems(store);
+        boolean priceItemEditable = priceItemEligible && ownerLinked && operationalState == StoreOperationalState.ACTIVE;
+        String priceItemEligibilityReason = resolvePriceItemEligibilityReason(store, ownerLinked, operationalState, priceItemEditable);
 
         return new StoreEligibilitySnapshot(
             operationalState.name(),
             closureRequestStatus,
             menuEligible,
             menuEditable,
-            menuEligibilityReason
+            menuEligibilityReason,
+            priceItemEligible,
+            priceItemEditable,
+            priceItemEligibilityReason
+        );
+    }
+
+    @Transactional(readOnly = true)
+    public StorePriceItemEligibilitySnapshot describePriceItems(Store store, boolean ownerLinked) {
+        StoreOperationalState operationalState = resolveOperationalState(store);
+        String closureRequestStatus = resolveClosureRequestStatus(store);
+        boolean priceItemEligible = store.isVerified() && !store.isDeleted() && supportsPriceItems(store);
+        boolean priceItemEditable = priceItemEligible && ownerLinked && operationalState == StoreOperationalState.ACTIVE;
+        String priceItemEligibilityReason = resolvePriceItemEligibilityReason(store, ownerLinked, operationalState, priceItemEditable);
+
+        return new StorePriceItemEligibilitySnapshot(
+            operationalState.name(),
+            closureRequestStatus,
+            priceItemEligible,
+            priceItemEditable,
+            priceItemEligibilityReason
         );
     }
 
@@ -79,6 +106,27 @@ public class StoreEligibilityService {
         return null;
     }
 
+    private String resolvePriceItemEligibilityReason(
+        Store store,
+        boolean ownerLinked,
+        StoreOperationalState operationalState,
+        boolean priceItemEditable
+    ) {
+        if (!store.isVerified()) {
+            return PRICE_ITEM_NOT_REGISTERED_REASON;
+        }
+        if (store.isDeleted()) {
+            return PRICE_ITEM_NOT_ACTIVE_REASON;
+        }
+        if (!supportsPriceItems(store)) {
+            return PRICE_ITEM_NOT_SUPPORTED_REASON;
+        }
+        if (ownerLinked && !priceItemEditable && operationalState == StoreOperationalState.CLOSURE_REQUESTED) {
+            return PRICE_ITEM_EDITING_DISABLED_REASON;
+        }
+        return null;
+    }
+
     private boolean supportsMenus(Store store) {
         String categoryName = store.getCategoryName();
         if (categoryName == null || categoryName.isBlank()) {
@@ -94,12 +142,28 @@ public class StoreEligibilityService {
             || normalized.contains("food");
     }
 
+    private boolean supportsPriceItems(Store store) {
+        return !supportsMenus(store);
+    }
+
     public record StoreEligibilitySnapshot(
         String operationalState,
         String closureRequestStatus,
         boolean menuEligible,
         boolean menuEditable,
-        String menuEligibilityReason
+        String menuEligibilityReason,
+        boolean priceItemEligible,
+        boolean priceItemEditable,
+        String priceItemEligibilityReason
+    ) {
+    }
+
+    public record StorePriceItemEligibilitySnapshot(
+        String operationalState,
+        String closureRequestStatus,
+        boolean priceItemEligible,
+        boolean priceItemEditable,
+        String priceItemEligibilityReason
     ) {
     }
 }

@@ -1099,7 +1099,10 @@ public class OwnerApplicationService {
             eligibility.closureRequestStatus(),
             eligibility.menuEligible(),
             eligibility.menuEditable(),
-            eligibility.menuEligibilityReason()
+            eligibility.menuEligibilityReason(),
+            eligibility.priceItemEligible(),
+            eligibility.priceItemEditable(),
+            eligibility.priceItemEligibilityReason()
         );
     }
 

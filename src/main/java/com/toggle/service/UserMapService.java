@@ -3,6 +3,7 @@ package com.toggle.service;
 import com.toggle.dto.map.MapLikeResponse;
 import com.toggle.dto.map.PublicMapListItemResponse;
 import com.toggle.dto.map.PublicMapListResponse;
+import com.toggle.dto.map.UpdateUserMapMetadataRequest;
 import com.toggle.dto.map.UserMapDetailResponse;
 import com.toggle.dto.map.UserMapSummaryResponse;
 import com.toggle.dto.map.UserMapUpsertRequest;
@@ -24,13 +25,16 @@ import com.toggle.repository.UserMapLikeRepository;
 import com.toggle.repository.UserMapRepository;
 import com.toggle.repository.UserRepository;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 @Service
 public class UserMapService {
@@ -51,6 +55,7 @@ public class UserMapService {
     private final MyMapPublicInstitutionRepository myMapPublicInstitutionRepository;
     private final StoreRepository storeRepository;
     private final PublicInstitutionRepository publicInstitutionRepository;
+    private final S3FileService s3FileService;
 
     public UserMapService(
         AuthService authService,
@@ -60,7 +65,8 @@ public class UserMapService {
         MyMapStoreRepository myMapStoreRepository,
         MyMapPublicInstitutionRepository myMapPublicInstitutionRepository,
         StoreRepository storeRepository,
-        PublicInstitutionRepository publicInstitutionRepository
+        PublicInstitutionRepository publicInstitutionRepository,
+        S3FileService s3FileService
     ) {
         this.authService = authService;
         this.userRepository = userRepository;
@@ -70,6 +76,7 @@ public class UserMapService {
         this.myMapPublicInstitutionRepository = myMapPublicInstitutionRepository;
         this.storeRepository = storeRepository;
         this.publicInstitutionRepository = publicInstitutionRepository;
+        this.s3FileService = s3FileService;
     }
 
     @Transactional
@@ -154,6 +161,52 @@ public class UserMapService {
         }
 
         userMapRepository.save(map);
+        return toSummary(map, userMapLikeRepository.countByMapId(map.getId()));
+    }
+
+    @Transactional
+    public UserMapSummaryResponse updateMyMapMetadata(Long mapId, User ownerUser, UpdateUserMapMetadataRequest request) {
+        User user = authService.getAuthenticatedUser();
+        ensureOwner(ownerUser, user);
+
+        UserMap map = getOwnedMap(mapId, user);
+        map.update(null, normalizeTitle(request.name()), normalizeNullableText(request.description()), null);
+
+        if (user.getDefaultMapId() != null && user.getDefaultMapId().equals(map.getId())) {
+            syncUserBridge(user, map);
+            userRepository.save(user);
+        }
+
+        userMapRepository.save(map);
+        return toSummary(map, userMapLikeRepository.countByMapId(map.getId()));
+    }
+
+    @Transactional
+    public UserMapSummaryResponse updateMyMapProfileImage(Long mapId, User ownerUser, MultipartFile profileImage) {
+        User user = authService.getAuthenticatedUser();
+        ensureOwner(ownerUser, user);
+
+        UserMap map = getOwnedMap(mapId, user);
+        String previousProfileImageUrl = map.getProfileImageUrl();
+        String previousUserProfileImageUrl = user.getDefaultMapId() != null && user.getDefaultMapId().equals(map.getId())
+            ? user.getProfileImageUrl()
+            : null;
+        S3FileService.StoredFile storedFile = s3FileService.uploadFile(profileImage, "map_profile");
+
+        map.update(map.isPublic(), map.getTitle(), map.getDescription(), storedFile.url());
+
+        if (user.getDefaultMapId() != null && user.getDefaultMapId().equals(map.getId())) {
+            syncUserBridge(user, map);
+            userRepository.save(user);
+        }
+
+        userMapRepository.save(map);
+
+        List<String> keysToDelete = new ArrayList<>();
+        addObjectKey(keysToDelete, previousProfileImageUrl);
+        addObjectKey(keysToDelete, previousUserProfileImageUrl);
+        deleteAfterCommitDistinct(keysToDelete, storedFile.key());
+
         return toSummary(map, userMapLikeRepository.countByMapId(map.getId()));
     }
 
@@ -460,5 +513,23 @@ public class UserMapService {
 
     private void ensureOwnerNotSelf(User ownerUser, User currentUser) {
         ensureOwner(ownerUser, currentUser);
+    }
+
+    private void addObjectKey(List<String> keys, String url) {
+        String objectKey = ImageUrlMapper.toObjectKey(url);
+        if (objectKey != null && !objectKey.isBlank()) {
+            keys.add(objectKey);
+        }
+    }
+
+    private void deleteAfterCommitDistinct(List<String> candidateKeys, String newKey) {
+        List<String> keysToDelete = candidateKeys.stream()
+            .filter(Objects::nonNull)
+            .map(String::trim)
+            .filter(key -> !key.isBlank())
+            .filter(key -> !key.equals(newKey))
+            .distinct()
+            .toList();
+        s3FileService.deleteFilesAfterCommit(keysToDelete);
     }
 }
