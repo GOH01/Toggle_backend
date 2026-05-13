@@ -20,6 +20,7 @@ import com.toggle.global.exception.ApiException;
 import com.toggle.repository.MyMapPublicInstitutionRepository;
 import com.toggle.repository.MyMapStoreRepository;
 import com.toggle.repository.UserRepository;
+import com.toggle.repository.UserMapRepository;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -51,6 +52,9 @@ class MyMapServiceTest {
     @Mock
     private UserRepository userRepository;
 
+    @Mock
+    private UserMapRepository userMapRepository;
+
     @Test
     void addStoreShouldUseDefaultMapAndAllowVerifiedStoreOnly() {
         MyMapService myMapService = new MyMapService(
@@ -59,7 +63,8 @@ class MyMapServiceTest {
             publicInstitutionService,
             myMapStoreRepository,
             myMapPublicInstitutionRepository,
-            userRepository
+            userRepository,
+            userMapRepository
         );
 
         User user = new User("user@test.com", "password", "tester", UserRole.USER, UserStatus.ACTIVE);
@@ -82,7 +87,7 @@ class MyMapServiceTest {
         store.markVerified("서울시 테스트구 테스트로 1", "서울시 테스트구 테스트로 1", "카페", "{}", null);
 
         when(authService.getAuthenticatedUser()).thenReturn(user);
-        when(authService.ensureDefaultMap(user)).thenReturn(defaultMap);
+        when(userMapRepository.findByIdAndDeletedAtIsNull(10L)).thenReturn(java.util.Optional.of(defaultMap));
         when(storeService.getRegisteredStore(101L)).thenReturn(store);
         when(myMapStoreRepository.findAllByUserIdAndMapIsNullOrderByCreatedAtDesc(1L)).thenReturn(List.of());
         when(myMapPublicInstitutionRepository.findAllByUserIdAndMapIsNullOrderByCreatedAtDesc(1L)).thenReturn(List.of());
@@ -109,7 +114,8 @@ class MyMapServiceTest {
             publicInstitutionService,
             myMapStoreRepository,
             myMapPublicInstitutionRepository,
-            userRepository
+            userRepository,
+            userMapRepository
         );
 
         User user = new User("user@test.com", "password", "tester", UserRole.USER, UserStatus.ACTIVE);
@@ -132,7 +138,7 @@ class MyMapServiceTest {
         store.markVerified("서울시 테스트구 테스트로 1", "서울시 테스트구 테스트로 1", "카페", "{}", null);
 
         when(authService.getAuthenticatedUser()).thenReturn(user);
-        when(authService.ensureDefaultMap(user)).thenReturn(defaultMap);
+        when(userMapRepository.findByIdAndDeletedAtIsNull(10L)).thenReturn(java.util.Optional.of(defaultMap));
         when(storeService.getRegisteredStore(101L)).thenReturn(store);
         when(myMapStoreRepository.findAllByUserIdAndMapIsNullOrderByCreatedAtDesc(1L)).thenReturn(List.of());
         when(myMapPublicInstitutionRepository.findAllByUserIdAndMapIsNullOrderByCreatedAtDesc(1L)).thenReturn(List.of());
@@ -155,7 +161,8 @@ class MyMapServiceTest {
             publicInstitutionService,
             myMapStoreRepository,
             myMapPublicInstitutionRepository,
-            userRepository
+            userRepository,
+            userMapRepository
         );
 
         User user = new User("user@test.com", "password", "tester", UserRole.USER, UserStatus.ACTIVE);
@@ -167,7 +174,7 @@ class MyMapServiceTest {
         ReflectionTestUtils.setField(publicInstitution, "id", 201L);
 
         when(authService.getAuthenticatedUser()).thenReturn(user);
-        when(authService.ensureDefaultMap(user)).thenReturn(defaultMap);
+        when(userMapRepository.findByIdAndDeletedAtIsNull(10L)).thenReturn(java.util.Optional.of(defaultMap));
         when(publicInstitutionService.getInstitution(201L)).thenReturn(publicInstitution);
         when(myMapStoreRepository.findAllByUserIdAndMapIsNullOrderByCreatedAtDesc(1L)).thenReturn(List.of());
         when(myMapPublicInstitutionRepository.findAllByUserIdAndMapIsNullOrderByCreatedAtDesc(1L)).thenReturn(List.of());
@@ -198,7 +205,8 @@ class MyMapServiceTest {
             publicInstitutionService,
             myMapStoreRepository,
             myMapPublicInstitutionRepository,
-            userRepository
+            userRepository,
+            userMapRepository
         );
 
         User user = new User("user@test.com", "password", "toggle-demo", UserRole.USER, UserStatus.ACTIVE);
@@ -213,6 +221,7 @@ class MyMapServiceTest {
             UserStatus.ACTIVE,
             "toggle"
         )).thenReturn(List.of(user));
+        when(userMapRepository.findByIdAndDeletedAtIsNull(10L)).thenReturn(java.util.Optional.of(buildMap(user, 10L, true, "map-uuid")));
         when(myMapStoreRepository.findAllByMapIdAndStoreDeletedAtIsNullOrderByCreatedAtDesc(10L)).thenReturn(List.of(
             buildStore(user, 101L),
             buildStore(user, 102L)
@@ -242,7 +251,8 @@ class MyMapServiceTest {
             publicInstitutionService,
             myMapStoreRepository,
             myMapPublicInstitutionRepository,
-            userRepository
+            userRepository,
+            userMapRepository
         );
 
         User user = new User("user@test.com", "password", "toggle-demo", UserRole.USER, UserStatus.ACTIVE);
@@ -255,7 +265,7 @@ class MyMapServiceTest {
 
         when(authService.getAuthenticatedUser()).thenReturn(user);
         when(authService.ensurePublicMapUuid(user)).thenReturn("public-map-uuid");
-        when(authService.ensureDefaultMap(user)).thenReturn(defaultMap);
+        when(userMapRepository.findByIdAndDeletedAtIsNull(10L)).thenReturn(java.util.Optional.of(defaultMap));
         when(myMapStoreRepository.findAllByMapIdAndStoreDeletedAtIsNullOrderByCreatedAtDesc(10L)).thenReturn(List.of());
         when(myMapStoreRepository.findAllByUserIdAndMapIsNullOrderByCreatedAtDesc(1L)).thenReturn(List.of());
         when(myMapPublicInstitutionRepository.findAllByMapIdOrderByCreatedAtDesc(10L)).thenReturn(List.of());
@@ -272,7 +282,8 @@ class MyMapServiceTest {
             publicInstitutionService,
             myMapStoreRepository,
             myMapPublicInstitutionRepository,
-            userRepository
+            userRepository,
+            userMapRepository
         );
 
         User privateUser = new User("user@test.com", "password", "toggle-demo", UserRole.USER, UserStatus.ACTIVE);

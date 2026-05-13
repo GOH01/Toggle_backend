@@ -226,21 +226,24 @@ public class AuthService {
     @Transactional
     public MeResponse.MapProfile updateMyMapProfile(UpdateMyMapProfileRequest request) {
         User user = getAuthenticatedUser();
-        UserMap map = ensureDefaultMap(user);
-        map.update(
-            request.isPublic(),
-            normalizeNullableText(request.title()),
-            normalizeNullableText(request.description()),
-            normalizeNullableText(request.profileImageUrl())
-        );
+        UserMap map = findDefaultMap(user);
+        Boolean isPublic = request.isPublic();
+        String title = normalizeNullableText(request.title());
+        String description = normalizeNullableText(request.description());
+        String profileImageUrl = normalizeNullableText(request.profileImageUrl());
+
+        if (map != null) {
+            map.update(isPublic, title, description, profileImageUrl);
+            syncUserMapBridge(user, map);
+            userMapRepository.save(map);
+        }
+
         user.updateMapProfile(
-            request.isPublic(),
-            normalizeNullableText(request.title()),
-            normalizeNullableText(request.description()),
-            normalizeNullableText(request.profileImageUrl())
+            isPublic,
+            title,
+            description,
+            profileImageUrl
         );
-        syncUserMapBridge(user, map);
-        userMapRepository.save(map);
         userRepository.save(user);
         return buildMapProfile(user);
     }
@@ -289,14 +292,23 @@ public class AuthService {
     }
 
     private MeResponse.MapProfile buildMapProfile(User user) {
-        UserMap defaultMap = ensureDefaultMap(user);
-        syncUserMapBridge(user, defaultMap);
+        UserMap defaultMap = findDefaultMap(user);
+        if (defaultMap != null) {
+            return new MeResponse.MapProfile(
+                defaultMap.getPublicMapUuid(),
+                defaultMap.isPublic(),
+                defaultMap.getTitle(),
+                defaultMap.getDescription(),
+                defaultMap.getProfileImageUrl()
+            );
+        }
+
         return new MeResponse.MapProfile(
-            defaultMap.getPublicMapUuid(),
-            defaultMap.isPublic(),
-            defaultMap.getTitle(),
-            defaultMap.getDescription(),
-            defaultMap.getProfileImageUrl()
+            user.getPublicMapUuid(),
+            user.isPublicMap(),
+            resolveMapTitle(user),
+            user.getMapDescription(),
+            user.getProfileImageUrl()
         );
     }
 
@@ -379,6 +391,19 @@ public class AuthService {
         }
 
         return createDefaultMap(user);
+    }
+
+    private UserMap findDefaultMap(User user) {
+        if (user.getDefaultMapId() != null) {
+            return userMapRepository.findByIdAndDeletedAtIsNull(user.getDefaultMapId()).orElse(null);
+        }
+
+        String publicMapUuid = normalizeNullableText(user.getPublicMapUuid());
+        if (publicMapUuid == null) {
+            return null;
+        }
+
+        return userMapRepository.findByPublicMapUuidAndDeletedAtIsNull(publicMapUuid).orElse(null);
     }
 
     private UserMap createDefaultMap(User user) {

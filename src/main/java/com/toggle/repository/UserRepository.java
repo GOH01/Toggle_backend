@@ -17,4 +17,6 @@ public interface UserRepository extends JpaRepository<User, Long> {
     Optional<User> findByPublicMapUuid(String publicMapUuid);
 
     List<User> findTop20ByPublicMapTrueAndStatusAndNicknameContainingIgnoreCaseOrderByIdAsc(UserStatus status, String nickname);
+
+    List<User> findTop20ByStatusAndNicknameContainingIgnoreCaseOrderByIdAsc(UserStatus status, String nickname);
 }

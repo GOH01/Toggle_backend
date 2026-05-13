@@ -4,13 +4,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.toggle.dto.auth.ChangePasswordRequest;
+import com.toggle.dto.auth.MeResponse;
+import com.toggle.dto.auth.SignupRequest;
 import com.toggle.dto.auth.UpdateNicknameRequest;
 import com.toggle.entity.User;
-import com.toggle.entity.UserMap;
 import com.toggle.entity.UserRole;
 import com.toggle.entity.UserStatus;
 import com.toggle.global.config.JwtProperties;
@@ -28,6 +31,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -37,6 +42,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 @ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
 class AuthServiceTest {
 
     @Mock
@@ -112,6 +118,40 @@ class AuthServiceTest {
 
         assertThatThrownBy(() -> authService.updateNickname(new UpdateNicknameRequest("newNick")))
             .isInstanceOf(ApiException.class);
+    }
+
+    @Test
+    void signupShouldNotCreateMapRow() {
+        when(userRepository.findByEmail("new@test.com")).thenReturn(Optional.empty());
+        when(userRepository.existsByNickname("tester")).thenReturn(false);
+        when(passwordEncoder.encode("password123!")).thenReturn("encoded-password");
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        var response = authService.signup(new SignupRequest(
+            "new@test.com",
+            "password123!",
+            "tester",
+            null,
+            UserRole.USER
+        ));
+
+        assertThat(response.email()).isEqualTo("new@test.com");
+        verify(userMapRepository, never()).save(any());
+    }
+
+    @Test
+    void getCurrentUserProfileShouldNotMaterializeDefaultMap() {
+        User user = activeUser(1L, "user@test.com", "nick");
+        ReflectionTestUtils.setField(user, "publicMapUuid", "public-map-uuid");
+        lenient().when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        lenient().when(userMapRepository.findByPublicMapUuidAndDeletedAtIsNull("public-map-uuid")).thenReturn(Optional.empty());
+        authenticate(user);
+
+        MeResponse response = authService.getCurrentUserProfile();
+
+        assertThat(response.mapProfile().publicMapUuid()).isEqualTo(user.getPublicMapUuid());
+        assertThat(response.mapProfile().title()).isEqualTo("nick님의 지도");
+        verify(userMapRepository, never()).save(any());
     }
 
     @Test

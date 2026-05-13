@@ -63,6 +63,7 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.POST, "/api/v1/maps/*/likes").authenticated()
                 .requestMatchers(HttpMethod.DELETE, "/api/v1/maps/*/likes").authenticated()
                 .requestMatchers("/api/v1/my-maps/**").authenticated()
+                .requestMatchers(HttpMethod.GET, "/api/v1/maps/search/users").authenticated()
                 .requestMatchers(HttpMethod.GET, "/api/v1/public-maps/search").authenticated()
                 .requestMatchers(HttpMethod.GET, "/api/v1/public-maps/*").permitAll()
                 .requestMatchers(

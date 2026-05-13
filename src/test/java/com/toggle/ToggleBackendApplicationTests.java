@@ -179,6 +179,8 @@ class ToggleBackendApplicationTests {
             .andExpect(jsonPath("$.data.role").value("USER"))
             .andExpect(jsonPath("$.data.displayName").value("tester"));
 
+        Assertions.assertThat(userMapRepository.count()).isZero();
+
         LoginRequest loginRequest = new LoginRequest("tester@toggle.com", "password123!");
 
         String loginResponse = mockMvc.perform(post("/api/v1/auth/login")
@@ -201,6 +203,8 @@ class ToggleBackendApplicationTests {
             .andExpect(jsonPath("$.data.mapProfile.publicMapUuid").isNotEmpty())
             .andExpect(jsonPath("$.data.mapProfile.isPublic").value(false))
             .andExpect(jsonPath("$.data.mapProfile.title").value("tester님의 지도"));
+
+        Assertions.assertThat(userMapRepository.count()).isZero();
 
         mockMvc.perform(post("/api/v1/auth/refresh")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -413,9 +417,7 @@ class ToggleBackendApplicationTests {
                 .content("""
                     {
                       "title": "데이트 지도",
-                      "description": "첫번째 지도",
-                      "isPublic": true,
-                      "profileImageUrl": null
+                      "description": "첫번째 지도"
                     }
                     """))
             .andExpect(status().isOk())
@@ -431,9 +433,7 @@ class ToggleBackendApplicationTests {
                 .content("""
                     {
                       "title": "카페 지도",
-                      "description": "두번째 지도",
-                      "isPublic": false,
-                      "profileImageUrl": null
+                      "description": "두번째 지도"
                     }
                     """))
             .andExpect(status().isOk())
@@ -442,6 +442,43 @@ class ToggleBackendApplicationTests {
             .getResponse()
             .getContentAsString();
         long mapBId = objectMapper.readTree(mapBResponse).path("data").path("mapId").asLong();
+
+        mockMvc.perform(put("/api/v1/my-maps/{mapId}", mapAId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "title": "데이트 지도",
+                      "description": "첫번째 지도",
+                      "isPublic": true,
+                      "profileImageUrl": null
+                    }
+                    """))
+            .andExpect(status().isOk());
+
+        mockMvc.perform(put("/api/v1/my-maps/{mapId}", mapBId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "title": "카페 지도",
+                      "description": "두번째 지도",
+                      "isPublic": true,
+                      "profileImageUrl": null
+                    }
+                    """))
+            .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/v1/maps/search/users")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                .param("nickname", "tester"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.nickname").value("tester"))
+            .andExpect(jsonPath("$.data.users.length()").value(1))
+            .andExpect(jsonPath("$.data.users[0].nickname").value("tester"))
+            .andExpect(jsonPath("$.data.users[0].maps.length()").value(2))
+            .andExpect(jsonPath("$.data.users[0].maps[0].title").value("카페 지도"))
+            .andExpect(jsonPath("$.data.users[0].maps[1].title").value("데이트 지도"));
 
         mockMvc.perform(post("/api/v1/my-maps/{mapId}/stores/{storeId}", mapAId, storeId)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))

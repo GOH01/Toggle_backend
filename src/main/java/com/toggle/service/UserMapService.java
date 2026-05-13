@@ -1,6 +1,7 @@
 package com.toggle.service;
 
 import com.toggle.dto.map.MapLikeResponse;
+import com.toggle.dto.map.CreateMyMapRequest;
 import com.toggle.dto.map.PublicMapListItemResponse;
 import com.toggle.dto.map.PublicMapListResponse;
 import com.toggle.dto.map.UpdateUserMapMetadataRequest;
@@ -8,6 +9,9 @@ import com.toggle.dto.map.UserMapDetailResponse;
 import com.toggle.dto.map.UserMapSummaryResponse;
 import com.toggle.dto.map.UserMapUpsertRequest;
 import com.toggle.dto.user.MyMapPlaceResponse;
+import com.toggle.dto.user.UserNicknameSearchItemResponse;
+import com.toggle.dto.user.UserNicknameSearchMapResponse;
+import com.toggle.dto.user.UserNicknameSearchResponse;
 import com.toggle.entity.MyMapPublicInstitution;
 import com.toggle.entity.MyMapStore;
 import com.toggle.entity.PublicInstitution;
@@ -15,6 +19,7 @@ import com.toggle.entity.Store;
 import com.toggle.entity.User;
 import com.toggle.entity.UserMap;
 import com.toggle.entity.UserMapLike;
+import com.toggle.entity.UserStatus;
 import com.toggle.global.exception.ApiException;
 import com.toggle.global.util.ImageUrlMapper;
 import com.toggle.repository.MyMapPublicInstitutionRepository;
@@ -80,16 +85,17 @@ public class UserMapService {
     }
 
     @Transactional
-    public UserMapSummaryResponse createMyMap(User ownerUser, UserMapUpsertRequest request) {
+    public UserMapSummaryResponse createMyMap(User ownerUser, CreateMyMapRequest request) {
         User user = authService.getAuthenticatedUser();
         ensureOwner(ownerUser, user);
 
         String title = normalizeTitle(request.title());
         String description = normalizeNullableText(request.description());
-        String profileImageUrl = normalizeNullableText(request.profileImageUrl());
-        boolean isPublic = Boolean.TRUE.equals(request.isPublic());
+        UserMap existingDefaultMap = user.getDefaultMapId() == null
+            ? findDefaultMap(user)
+            : userMapRepository.findByIdAndDeletedAtIsNull(user.getDefaultMapId()).orElse(null);
         String publicMapUuid;
-        if (user.getDefaultMapId() == null) {
+        if (existingDefaultMap == null && user.getDefaultMapId() == null) {
             publicMapUuid = user.getPublicMapUuid();
             if (publicMapUuid == null || publicMapUuid.isBlank()) {
                 publicMapUuid = buildPublicMapUuid();
@@ -103,15 +109,20 @@ public class UserMapService {
             publicMapUuid,
             title,
             description,
-            profileImageUrl,
-            isPublic,
+            null,
+            false,
             false
         ));
 
         if (user.getDefaultMapId() == null) {
-            map.markPrimary(true);
-            user.setDefaultMapId(map.getId());
-            syncUserBridge(user, map);
+            if (existingDefaultMap != null) {
+                user.setDefaultMapId(existingDefaultMap.getId());
+                syncUserBridge(user, existingDefaultMap);
+            } else {
+                map.markPrimary(true);
+                user.setDefaultMapId(map.getId());
+                syncUserBridge(user, map);
+            }
             userRepository.save(user);
         }
 
@@ -123,7 +134,7 @@ public class UserMapService {
         User user = authService.getAuthenticatedUser();
         ensureOwner(ownerUser, user);
 
-        return userMapRepository.findAllByOwnerUserIdAndDeletedAtIsNullOrderByPrimaryMapDescCreatedAtAscIdAsc(user.getId())
+        return userMapRepository.findAllByOwnerUserIdAndDeletedAtIsNullOrderByCreatedAtDescIdDesc(user.getId())
             .stream()
             .map(map -> toSummary(map, userMapLikeRepository.countByMapId(map.getId())))
             .toList();
@@ -225,8 +236,57 @@ public class UserMapService {
         userMapRepository.save(map);
 
         if (wasPrimary) {
-            promotePrimaryMapOrCreateReplacement(user);
+            promotePrimaryMapOrClearProfile(user);
         }
+    }
+
+    @Transactional(readOnly = true)
+    public UserNicknameSearchResponse searchUsersByNickname(String nickname) {
+        authService.getAuthenticatedUser();
+
+        String normalizedNickname = normalizeNullableText(nickname);
+        validateSearchNickname(normalizedNickname);
+
+        List<User> users = userRepository.findTop20ByStatusAndNicknameContainingIgnoreCaseOrderByIdAsc(
+            UserStatus.ACTIVE,
+            normalizedNickname
+        );
+        if (users.isEmpty()) {
+            return new UserNicknameSearchResponse(normalizedNickname, List.of());
+        }
+
+        List<Long> ownerUserIds = users.stream().map(User::getId).toList();
+        List<UserMap> maps = userMapRepository.findAllByOwnerUserIdInAndDeletedAtIsNullOrderByOwnerUserIdAscCreatedAtDescIdDesc(ownerUserIds);
+
+        java.util.Map<Long, List<UserNicknameSearchMapResponse>> mapsByUserId = new java.util.LinkedHashMap<>();
+        for (User user : users) {
+            mapsByUserId.put(user.getId(), new java.util.ArrayList<>());
+        }
+        for (UserMap map : maps) {
+            if (!map.isPublic()) {
+                continue;
+            }
+            mapsByUserId.computeIfAbsent(map.getOwnerUser().getId(), key -> new java.util.ArrayList<>())
+                .add(new UserNicknameSearchMapResponse(
+                    map.getId(),
+                    map.getTitle(),
+                    map.getDescription(),
+                    map.getProfileImageUrl(),
+                    map.getCreatedAt(),
+                    map.getUpdatedAt()
+                ));
+        }
+
+        List<UserNicknameSearchItemResponse> content = users.stream()
+            .map(user -> new UserNicknameSearchItemResponse(
+                user.getId(),
+                user.getNickname(),
+                user.getProfileImageUrl(),
+                List.copyOf(mapsByUserId.getOrDefault(user.getId(), List.of()))
+            ))
+            .toList();
+
+        return new UserNicknameSearchResponse(normalizedNickname, content);
     }
 
     @Transactional
@@ -373,7 +433,20 @@ public class UserMapService {
         user.setPublicMapUuid(map.getPublicMapUuid());
     }
 
-    private void promotePrimaryMapOrCreateReplacement(User user) {
+    private UserMap findDefaultMap(User user) {
+        if (user.getDefaultMapId() != null) {
+            return userMapRepository.findByIdAndDeletedAtIsNull(user.getDefaultMapId()).orElse(null);
+        }
+
+        String publicMapUuid = user.getPublicMapUuid();
+        if (publicMapUuid == null || publicMapUuid.isBlank()) {
+            return null;
+        }
+
+        return userMapRepository.findByPublicMapUuidAndDeletedAtIsNull(publicMapUuid).orElse(null);
+    }
+
+    private void promotePrimaryMapOrClearProfile(User user) {
         List<UserMap> remaining = userMapRepository.findAllByOwnerUserIdAndDeletedAtIsNullOrderByPrimaryMapDescCreatedAtAscIdAsc(user.getId());
         if (!remaining.isEmpty()) {
             UserMap nextPrimary = remaining.get(0);
@@ -385,17 +458,7 @@ public class UserMapService {
             return;
         }
 
-        UserMap replacement = userMapRepository.save(new UserMap(
-            user,
-            buildPublicMapUuid(),
-            normalizeTitle(user.getNickname() + "님의 지도"),
-            null,
-            null,
-            false,
-            true
-        ));
-        user.setDefaultMapId(replacement.getId());
-        syncUserBridge(user, replacement);
+        user.clearMapProfile();
         userRepository.save(user);
     }
 
@@ -513,6 +576,12 @@ public class UserMapService {
 
     private void ensureOwnerNotSelf(User ownerUser, User currentUser) {
         ensureOwner(ownerUser, currentUser);
+    }
+
+    private void validateSearchNickname(String nickname) {
+        if (nickname == null || nickname.isBlank() || nickname.length() > 30) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_PUBLIC_MAP_SEARCH_QUERY", "닉네임은 1자 이상 30자 이하여야 합니다.");
+        }
     }
 
     private void addObjectKey(List<String> keys, String url) {

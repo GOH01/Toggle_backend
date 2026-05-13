@@ -7,10 +7,11 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.toggle.dto.map.CreateMyMapRequest;
 import com.toggle.dto.map.PublicMapListResponse;
 import com.toggle.dto.map.UpdateUserMapMetadataRequest;
 import com.toggle.dto.map.UserMapSummaryResponse;
-import com.toggle.dto.map.UserMapUpsertRequest;
+import com.toggle.dto.user.UserNicknameSearchResponse;
 import com.toggle.entity.ExternalSource;
 import com.toggle.entity.MyMapPublicInstitution;
 import com.toggle.entity.MyMapStore;
@@ -99,8 +100,8 @@ class UserMapServiceTest {
             return map;
         });
 
-        UserMapSummaryResponse first = service.createMyMap(user, new UserMapUpsertRequest("데이트 지도", "첫번째", true, null));
-        UserMapSummaryResponse second = service.createMyMap(user, new UserMapUpsertRequest("맛집 지도", "두번째", false, null));
+        UserMapSummaryResponse first = service.createMyMap(user, new CreateMyMapRequest("데이트 지도", "첫번째"));
+        UserMapSummaryResponse second = service.createMyMap(user, new CreateMyMapRequest("맛집 지도", "두번째"));
 
         assertThat(first.mapId()).isEqualTo(101L);
         assertThat(second.mapId()).isEqualTo(102L);
@@ -114,6 +115,52 @@ class UserMapServiceTest {
         assertThat(savedMaps.get(0).getPublicMapUuid()).isNotBlank();
         assertThat(savedMaps.get(1).getPublicMapUuid()).isNotBlank();
         assertThat(savedMaps.get(0).getPublicMapUuid()).isNotEqualTo(savedMaps.get(1).getPublicMapUuid());
+    }
+
+    @Test
+    void searchUsersByNicknameShouldReturnUsersWithMultipleMaps() {
+        UserMapService service = new UserMapService(
+            authService,
+            userRepository,
+            userMapRepository,
+            userMapLikeRepository,
+            myMapStoreRepository,
+            myMapPublicInstitutionRepository,
+            storeRepository,
+            publicInstitutionRepository,
+            s3FileService
+        );
+
+        User currentUser = new User("searcher@test.com", "password", "searcher", UserRole.USER, UserStatus.ACTIVE);
+        ReflectionTestUtils.setField(currentUser, "id", 1L);
+        when(authService.getAuthenticatedUser()).thenReturn(currentUser);
+
+        User targetUser = new User("target@test.com", "password", "민경", UserRole.USER, UserStatus.ACTIVE);
+        ReflectionTestUtils.setField(targetUser, "id", 10L);
+        ReflectionTestUtils.setField(targetUser, "profileImageUrl", "https://cdn.example.com/user.png");
+
+        UserMap firstMap = buildMap(targetUser, 201L, true, "uuid-201");
+        ReflectionTestUtils.setField(firstMap, "title", "민경의 카페 지도");
+        ReflectionTestUtils.setField(firstMap, "description", "카페 모음");
+        ReflectionTestUtils.setField(firstMap, "profileImageUrl", "https://cdn.example.com/map-201.png");
+
+        UserMap secondMap = buildMap(targetUser, 202L, true, "uuid-202");
+        ReflectionTestUtils.setField(secondMap, "title", "민경의 맛집 지도");
+        ReflectionTestUtils.setField(secondMap, "description", "맛집 모음");
+        ReflectionTestUtils.setField(secondMap, "profileImageUrl", "https://cdn.example.com/map-202.png");
+
+        when(userRepository.findTop20ByStatusAndNicknameContainingIgnoreCaseOrderByIdAsc(UserStatus.ACTIVE, "민")).thenReturn(List.of(targetUser));
+        when(userMapRepository.findAllByOwnerUserIdInAndDeletedAtIsNullOrderByOwnerUserIdAscCreatedAtDescIdDesc(List.of(10L)))
+            .thenReturn(List.of(secondMap, firstMap));
+
+        var response = service.searchUsersByNickname("민");
+
+        assertThat(response.nickname()).isEqualTo("민");
+        assertThat(response.users()).hasSize(1);
+        assertThat(response.users().get(0).nickname()).isEqualTo("민경");
+        assertThat(response.users().get(0).maps()).hasSize(2);
+        assertThat(response.users().get(0).maps().get(0).title()).isEqualTo("민경의 맛집 지도");
+        assertThat(response.users().get(0).maps().get(1).title()).isEqualTo("민경의 카페 지도");
     }
 
     @Test

@@ -157,6 +157,13 @@ public class User extends BaseTimeEntity {
         }
     }
 
+    public void clearMapProfile() {
+        this.publicMap = false;
+        this.mapTitle = null;
+        this.mapDescription = null;
+        this.defaultMapId = null;
+    }
+
     public void setDefaultMapId(Long defaultMapId) {
         this.defaultMapId = defaultMapId;
     }

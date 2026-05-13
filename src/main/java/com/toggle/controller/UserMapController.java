@@ -2,11 +2,13 @@ package com.toggle.controller;
 
 import com.toggle.dto.map.MapLikeResponse;
 import com.toggle.dto.map.PublicMapListResponse;
+import com.toggle.dto.map.CreateMyMapRequest;
 import com.toggle.dto.map.UpdateUserMapMetadataRequest;
 import com.toggle.dto.map.UserMapDetailResponse;
 import com.toggle.dto.map.UserMapSummaryResponse;
 import com.toggle.dto.map.UserMapUpsertRequest;
 import com.toggle.dto.user.MyMapPlaceResponse;
+import com.toggle.dto.user.UserNicknameSearchResponse;
 import com.toggle.entity.User;
 import com.toggle.global.response.ApiResponse;
 import com.toggle.service.AuthService;
@@ -39,7 +41,7 @@ public class UserMapController {
     }
 
     @PostMapping("/my-maps")
-    public ApiResponse<UserMapSummaryResponse> createMyMap(@Valid @RequestBody UserMapUpsertRequest request) {
+    public ApiResponse<UserMapSummaryResponse> createMyMap(@Valid @RequestBody CreateMyMapRequest request) {
         User user = authService.getAuthenticatedUser();
         return ApiResponse.ok(userMapService.createMyMap(user, request));
     }
@@ -133,6 +135,11 @@ public class UserMapController {
     @GetMapping("/maps/{mapId}")
     public ApiResponse<UserMapDetailResponse> getPublicMap(@PathVariable Long mapId) {
         return ApiResponse.ok(userMapService.getPublicMap(mapId));
+    }
+
+    @GetMapping("/maps/search/users")
+    public ApiResponse<UserNicknameSearchResponse> searchUsersByNickname(@RequestParam String nickname) {
+        return ApiResponse.ok(userMapService.searchUsersByNickname(nickname));
     }
 
     @PostMapping("/maps/{mapId}/likes")
