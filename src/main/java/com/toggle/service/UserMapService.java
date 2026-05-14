@@ -91,40 +91,18 @@ public class UserMapService {
 
         String title = normalizeTitle(request.title());
         String description = normalizeNullableText(request.description());
-        UserMap existingDefaultMap = user.getDefaultMapId() == null
-            ? findDefaultMap(user)
-            : userMapRepository.findByIdAndDeletedAtIsNull(user.getDefaultMapId()).orElse(null);
-        String publicMapUuid;
-        if (existingDefaultMap == null && user.getDefaultMapId() == null) {
-            publicMapUuid = user.getPublicMapUuid();
-            if (publicMapUuid == null || publicMapUuid.isBlank()) {
-                publicMapUuid = buildPublicMapUuid();
-            }
-        } else {
-            publicMapUuid = buildPublicMapUuid();
-        }
+        boolean primaryMap = userMapRepository.findAllByOwnerUserIdAndDeletedAtIsNullOrderByCreatedAtDescIdDesc(user.getId())
+            .isEmpty();
 
         UserMap map = userMapRepository.save(new UserMap(
             user,
-            publicMapUuid,
+            buildPublicMapUuid(),
             title,
             description,
             null,
             false,
-            false
+            primaryMap
         ));
-
-        if (user.getDefaultMapId() == null) {
-            if (existingDefaultMap != null) {
-                user.setDefaultMapId(existingDefaultMap.getId());
-                syncUserBridge(user, existingDefaultMap);
-            } else {
-                map.markPrimary(true);
-                user.setDefaultMapId(map.getId());
-                syncUserBridge(user, map);
-            }
-            userRepository.save(user);
-        }
 
         return toSummary(map, 0L);
     }
@@ -166,11 +144,6 @@ public class UserMapService {
             normalizeNullableText(request.profileImageUrl())
         );
 
-        if (user.getDefaultMapId() != null && user.getDefaultMapId().equals(map.getId())) {
-            syncUserBridge(user, map);
-            userRepository.save(user);
-        }
-
         userMapRepository.save(map);
         return toSummary(map, userMapLikeRepository.countByMapId(map.getId()));
     }
@@ -183,11 +156,6 @@ public class UserMapService {
         UserMap map = getOwnedMap(mapId, user);
         map.update(null, normalizeTitle(request.name()), normalizeNullableText(request.description()), null);
 
-        if (user.getDefaultMapId() != null && user.getDefaultMapId().equals(map.getId())) {
-            syncUserBridge(user, map);
-            userRepository.save(user);
-        }
-
         userMapRepository.save(map);
         return toSummary(map, userMapLikeRepository.countByMapId(map.getId()));
     }
@@ -199,23 +167,14 @@ public class UserMapService {
 
         UserMap map = getOwnedMap(mapId, user);
         String previousProfileImageUrl = map.getProfileImageUrl();
-        String previousUserProfileImageUrl = user.getDefaultMapId() != null && user.getDefaultMapId().equals(map.getId())
-            ? user.getProfileImageUrl()
-            : null;
         S3FileService.StoredFile storedFile = s3FileService.uploadFile(profileImage, "map_profile");
 
         map.update(map.isPublic(), map.getTitle(), map.getDescription(), storedFile.url());
-
-        if (user.getDefaultMapId() != null && user.getDefaultMapId().equals(map.getId())) {
-            syncUserBridge(user, map);
-            userRepository.save(user);
-        }
 
         userMapRepository.save(map);
 
         List<String> keysToDelete = new ArrayList<>();
         addObjectKey(keysToDelete, previousProfileImageUrl);
-        addObjectKey(keysToDelete, previousUserProfileImageUrl);
         deleteAfterCommitDistinct(keysToDelete, storedFile.key());
 
         return toSummary(map, userMapLikeRepository.countByMapId(map.getId()));
@@ -227,7 +186,7 @@ public class UserMapService {
         ensureOwner(ownerUser, user);
 
         UserMap map = getOwnedMap(mapId, user);
-        boolean wasPrimary = user.getDefaultMapId() != null && user.getDefaultMapId().equals(map.getId());
+        boolean wasPrimary = map.isPrimary();
 
         myMapStoreRepository.deleteAllByMapId(map.getId());
         myMapPublicInstitutionRepository.deleteAllByMapId(map.getId());
@@ -236,7 +195,7 @@ public class UserMapService {
         userMapRepository.save(map);
 
         if (wasPrimary) {
-            promotePrimaryMapOrClearProfile(user);
+            promotePrimaryMap(user);
         }
     }
 
@@ -263,9 +222,6 @@ public class UserMapService {
             mapsByUserId.put(user.getId(), new java.util.ArrayList<>());
         }
         for (UserMap map : maps) {
-            if (!map.isPublic()) {
-                continue;
-            }
             mapsByUserId.computeIfAbsent(map.getOwnerUser().getId(), key -> new java.util.ArrayList<>())
                 .add(new UserNicknameSearchMapResponse(
                     map.getId(),
@@ -428,38 +384,17 @@ public class UserMapService {
         return new MapLikeResponse(map.getId(), userMapLikeRepository.countByMapId(map.getId()), false);
     }
 
-    private void syncUserBridge(User user, UserMap map) {
-        user.updateMapProfile(map.isPublic(), map.getTitle(), map.getDescription(), map.getProfileImageUrl());
-        user.setPublicMapUuid(map.getPublicMapUuid());
-    }
-
-    private UserMap findDefaultMap(User user) {
-        if (user.getDefaultMapId() != null) {
-            return userMapRepository.findByIdAndDeletedAtIsNull(user.getDefaultMapId()).orElse(null);
-        }
-
-        String publicMapUuid = user.getPublicMapUuid();
-        if (publicMapUuid == null || publicMapUuid.isBlank()) {
-            return null;
-        }
-
-        return userMapRepository.findByPublicMapUuidAndDeletedAtIsNull(publicMapUuid).orElse(null);
-    }
-
-    private void promotePrimaryMapOrClearProfile(User user) {
+    private void promotePrimaryMap(User user) {
         List<UserMap> remaining = userMapRepository.findAllByOwnerUserIdAndDeletedAtIsNullOrderByPrimaryMapDescCreatedAtAscIdAsc(user.getId());
-        if (!remaining.isEmpty()) {
-            UserMap nextPrimary = remaining.get(0);
-            nextPrimary.markPrimary(true);
-            user.setDefaultMapId(nextPrimary.getId());
-            syncUserBridge(user, nextPrimary);
-            userRepository.save(user);
-            userMapRepository.save(nextPrimary);
+        if (remaining.isEmpty()) {
             return;
         }
 
-        user.clearMapProfile();
-        userRepository.save(user);
+        UserMap nextPrimary = remaining.get(0);
+        if (!nextPrimary.isPrimary()) {
+            nextPrimary.markPrimary(true);
+            userMapRepository.save(nextPrimary);
+        }
     }
 
     private UserMap getOwnedMap(Long mapId, User user) {

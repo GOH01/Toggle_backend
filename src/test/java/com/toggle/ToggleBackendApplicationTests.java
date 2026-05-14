@@ -200,9 +200,9 @@ class ToggleBackendApplicationTests {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.email").value("tester@toggle.com"))
             .andExpect(jsonPath("$.data.displayName").value("tester"))
-            .andExpect(jsonPath("$.data.mapProfile.publicMapUuid").isNotEmpty())
+            .andExpect(jsonPath("$.data.mapProfile.publicMapUuid").value(org.hamcrest.Matchers.nullValue()))
             .andExpect(jsonPath("$.data.mapProfile.isPublic").value(false))
-            .andExpect(jsonPath("$.data.mapProfile.title").value("tester님의 지도"));
+            .andExpect(jsonPath("$.data.mapProfile.title").value(org.hamcrest.Matchers.nullValue()));
 
         Assertions.assertThat(userMapRepository.count()).isZero();
 
@@ -270,6 +270,7 @@ class ToggleBackendApplicationTests {
         String accessToken = signupAndLoginMember("public-map@toggle.com");
         Long favoriteStoreId = createStore("favorite-store", "찜 가능한 매장", "음식점", "37.4980950", "127.0276100");
         Long myMapStoreId = createStore("my-map-store", "내 지도 매장", "카페", "37.4981950", "127.0277100");
+        long primaryMapId = createMyMap(accessToken, "테스터의 지도", "기본 지도");
 
         mockMvc.perform(post("/api/v1/favorites/stores/{storeId}", favoriteStoreId)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
@@ -382,6 +383,7 @@ class ToggleBackendApplicationTests {
     void myMapEndpointsShouldAddAndRemovePlacesIndependently() throws Exception {
         String accessToken = signupAndLoginMember("my-map@toggle.com");
         Long storeId = createStore("my-map-target", "내 지도 추가 대상", "카페", "37.4980950", "127.0276100");
+        long mapId = createMyMap(accessToken, "나만의 지도", "기본 설명");
 
         mockMvc.perform(post("/api/v1/my-map/stores/{storeId}", storeId)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
@@ -1336,10 +1338,13 @@ class ToggleBackendApplicationTests {
             .getContentAsString();
 
         long storeId = objectMapper.readTree(approvalResponse).path("data").path("linkedStoreId").asLong();
+        createMyMap(userToken, "기본 지도", "기본 설명");
 
         mockMvc.perform(post("/api/v1/favorites/stores/{storeId}", storeId)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + userToken))
             .andExpect(status().isOk());
+        createMyMap(userToken, "기본 지도", "기본 설명");
+
         mockMvc.perform(post("/api/v1/my-map/stores/{storeId}", storeId)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + userToken))
             .andExpect(status().isOk());
@@ -1460,6 +1465,24 @@ class ToggleBackendApplicationTests {
             .getContentAsString();
 
         return objectMapper.readTree(loginResponse).path("data").path("accessToken").asText();
+    }
+
+    private long createMyMap(String accessToken, String title, String description) throws Exception {
+        String response = mockMvc.perform(post("/api/v1/my-maps")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(String.format("""
+                    {
+                      "title": "%s",
+                      "description": "%s"
+                    }
+                    """, title, description)))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+
+        return objectMapper.readTree(response).path("data").path("mapId").asLong();
     }
 
     private Long createOwnerApplication(String ownerToken, String address) throws Exception {

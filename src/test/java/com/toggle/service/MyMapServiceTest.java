@@ -2,6 +2,9 @@ package com.toggle.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -19,11 +22,12 @@ import com.toggle.entity.UserStatus;
 import com.toggle.global.exception.ApiException;
 import com.toggle.repository.MyMapPublicInstitutionRepository;
 import com.toggle.repository.MyMapStoreRepository;
-import com.toggle.repository.UserRepository;
 import com.toggle.repository.UserMapRepository;
+import com.toggle.repository.UserRepository;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -56,7 +60,7 @@ class MyMapServiceTest {
     private UserMapRepository userMapRepository;
 
     @Test
-    void addStoreShouldUseDefaultMapAndAllowVerifiedStoreOnly() {
+    void addStoreShouldUsePrimaryMapAndAllowVerifiedStoreOnly() {
         MyMapService myMapService = new MyMapService(
             authService,
             storeService,
@@ -67,36 +71,18 @@ class MyMapServiceTest {
             userMapRepository
         );
 
-        User user = new User("user@test.com", "password", "tester", UserRole.USER, UserStatus.ACTIVE);
-        ReflectionTestUtils.setField(user, "id", 1L);
-        ReflectionTestUtils.setField(user, "defaultMapId", 10L);
+        User user = user(1L, "user@test.com", "tester", UserStatus.ACTIVE);
+        UserMap primaryMap = map(user, 10L, true, true, "map-uuid");
 
-        UserMap defaultMap = buildMap(user, 10L, true, "map-uuid");
-
-        Store store = new Store(
-            ExternalSource.KAKAO,
-            "store-1",
-            "내 지도 대상 매장",
-            "02-123-4567",
-            "서울시 테스트구 테스트로 1",
-            "서울시 테스트구 테스트로 1",
-            new BigDecimal("37.1234567"),
-            new BigDecimal("127.1234567")
-        );
-        ReflectionTestUtils.setField(store, "id", 101L);
+        Store store = store(101L, "store-1", "내 지도 대상 매장");
         store.markVerified("서울시 테스트구 테스트로 1", "서울시 테스트구 테스트로 1", "카페", "{}", null);
 
         when(authService.getAuthenticatedUser()).thenReturn(user);
-        when(userMapRepository.findByIdAndDeletedAtIsNull(10L)).thenReturn(java.util.Optional.of(defaultMap));
+        when(userMapRepository.findAllByOwnerUserIdAndDeletedAtIsNullOrderByPrimaryMapDescCreatedAtAscIdAsc(1L))
+            .thenReturn(List.of(primaryMap));
         when(storeService.getRegisteredStore(101L)).thenReturn(store);
-        when(myMapStoreRepository.findAllByUserIdAndMapIsNullOrderByCreatedAtDesc(1L)).thenReturn(List.of());
-        when(myMapPublicInstitutionRepository.findAllByUserIdAndMapIsNullOrderByCreatedAtDesc(1L)).thenReturn(List.of());
         when(myMapStoreRepository.existsByMapIdAndStoreId(10L, 101L)).thenReturn(false);
-        when(myMapStoreRepository.save(org.mockito.ArgumentMatchers.any(MyMapStore.class))).thenAnswer(invocation -> {
-            MyMapStore saved = invocation.getArgument(0);
-            ReflectionTestUtils.setField(saved, "id", 11L);
-            return saved;
-        });
+        when(myMapStoreRepository.save(any(MyMapStore.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         MyMapPlaceResponse response = myMapService.addStore(101L);
 
@@ -107,7 +93,7 @@ class MyMapServiceTest {
     }
 
     @Test
-    void addStoreShouldRejectDuplicateOnSameDefaultMap() {
+    void addStoreShouldRejectDuplicateOnSamePrimaryMap() {
         MyMapService myMapService = new MyMapService(
             authService,
             storeService,
@@ -118,30 +104,15 @@ class MyMapServiceTest {
             userMapRepository
         );
 
-        User user = new User("user@test.com", "password", "tester", UserRole.USER, UserStatus.ACTIVE);
-        ReflectionTestUtils.setField(user, "id", 1L);
-        ReflectionTestUtils.setField(user, "defaultMapId", 10L);
-
-        UserMap defaultMap = buildMap(user, 10L, true, "map-uuid");
-
-        Store store = new Store(
-            ExternalSource.KAKAO,
-            "store-1",
-            "내 지도 대상 매장",
-            "02-123-4567",
-            "서울시 테스트구 테스트로 1",
-            "서울시 테스트구 테스트로 1",
-            new BigDecimal("37.1234567"),
-            new BigDecimal("127.1234567")
-        );
-        ReflectionTestUtils.setField(store, "id", 101L);
+        User user = user(1L, "user@test.com", "tester", UserStatus.ACTIVE);
+        UserMap primaryMap = map(user, 10L, true, true, "map-uuid");
+        Store store = store(101L, "store-1", "내 지도 대상 매장");
         store.markVerified("서울시 테스트구 테스트로 1", "서울시 테스트구 테스트로 1", "카페", "{}", null);
 
         when(authService.getAuthenticatedUser()).thenReturn(user);
-        when(userMapRepository.findByIdAndDeletedAtIsNull(10L)).thenReturn(java.util.Optional.of(defaultMap));
+        when(userMapRepository.findAllByOwnerUserIdAndDeletedAtIsNullOrderByPrimaryMapDescCreatedAtAscIdAsc(1L))
+            .thenReturn(List.of(primaryMap));
         when(storeService.getRegisteredStore(101L)).thenReturn(store);
-        when(myMapStoreRepository.findAllByUserIdAndMapIsNullOrderByCreatedAtDesc(1L)).thenReturn(List.of());
-        when(myMapPublicInstitutionRepository.findAllByUserIdAndMapIsNullOrderByCreatedAtDesc(1L)).thenReturn(List.of());
         when(myMapStoreRepository.existsByMapIdAndStoreId(10L, 101L)).thenReturn(true);
 
         assertThatThrownBy(() -> myMapService.addStore(101L))
@@ -154,7 +125,7 @@ class MyMapServiceTest {
     }
 
     @Test
-    void addPublicInstitutionShouldUseDefaultMapAndRejectDuplicateOnSameMap() {
+    void addPublicInstitutionShouldUsePrimaryMapAndRejectDuplicateOnSameMap() {
         MyMapService myMapService = new MyMapService(
             authService,
             storeService,
@@ -165,21 +136,17 @@ class MyMapServiceTest {
             userMapRepository
         );
 
-        User user = new User("user@test.com", "password", "tester", UserRole.USER, UserStatus.ACTIVE);
-        ReflectionTestUtils.setField(user, "id", 1L);
-        ReflectionTestUtils.setField(user, "defaultMapId", 10L);
-
-        UserMap defaultMap = buildMap(user, 10L, true, "map-uuid");
+        User user = user(1L, "user@test.com", "tester", UserStatus.ACTIVE);
+        UserMap primaryMap = map(user, 10L, true, true, "map-uuid");
         PublicInstitution publicInstitution = new PublicInstitution(ExternalSource.KAKAO, "pi-201", "공공기관 대상");
         ReflectionTestUtils.setField(publicInstitution, "id", 201L);
 
         when(authService.getAuthenticatedUser()).thenReturn(user);
-        when(userMapRepository.findByIdAndDeletedAtIsNull(10L)).thenReturn(java.util.Optional.of(defaultMap));
+        when(userMapRepository.findAllByOwnerUserIdAndDeletedAtIsNullOrderByPrimaryMapDescCreatedAtAscIdAsc(1L))
+            .thenReturn(List.of(primaryMap));
         when(publicInstitutionService.getInstitution(201L)).thenReturn(publicInstitution);
-        when(myMapStoreRepository.findAllByUserIdAndMapIsNullOrderByCreatedAtDesc(1L)).thenReturn(List.of());
-        when(myMapPublicInstitutionRepository.findAllByUserIdAndMapIsNullOrderByCreatedAtDesc(1L)).thenReturn(List.of());
         when(myMapPublicInstitutionRepository.existsByMapIdAndPublicInstitutionId(10L, 201L)).thenReturn(false);
-        when(myMapPublicInstitutionRepository.save(org.mockito.ArgumentMatchers.any(MyMapPublicInstitution.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(myMapPublicInstitutionRepository.save(any(MyMapPublicInstitution.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         MyMapPlaceResponse response = myMapService.addPublicInstitution(201L);
 
@@ -209,42 +176,41 @@ class MyMapServiceTest {
             userMapRepository
         );
 
-        User user = new User("user@test.com", "password", "toggle-demo", UserRole.USER, UserStatus.ACTIVE);
-        ReflectionTestUtils.setField(user, "id", 1L);
-        ReflectionTestUtils.setField(user, "defaultMapId", 10L);
-        ReflectionTestUtils.setField(user, "publicMap", true);
-        ReflectionTestUtils.setField(user, "mapDescription", "설명 텍스트");
-        ReflectionTestUtils.setField(user, "profileImageUrl", "https://cdn.example.com/profile.png");
+        User user = user(1L, "user@test.com", "toggle-demo", UserStatus.ACTIVE);
+        UserMap firstMap = map(user, 10L, true, false, "map-uuid-10");
+        ReflectionTestUtils.setField(firstMap, "title", "카페 지도");
+        ReflectionTestUtils.setField(firstMap, "description", "설명 텍스트");
+        ReflectionTestUtils.setField(firstMap, "profileImageUrl", "https://cdn.example.com/profile.png");
 
-        when(authService.getAuthenticatedUser()).thenReturn(user);
-        when(userRepository.findTop20ByPublicMapTrueAndStatusAndNicknameContainingIgnoreCaseOrderByIdAsc(
-            UserStatus.ACTIVE,
-            "toggle"
-        )).thenReturn(List.of(user));
-        when(userMapRepository.findByIdAndDeletedAtIsNull(10L)).thenReturn(java.util.Optional.of(buildMap(user, 10L, true, "map-uuid")));
-        when(myMapStoreRepository.findAllByMapIdAndStoreDeletedAtIsNullOrderByCreatedAtDesc(10L)).thenReturn(List.of(
-            buildStore(user, 101L),
-            buildStore(user, 102L)
-        ));
-        when(myMapStoreRepository.findAllByUserIdAndMapIsNullOrderByCreatedAtDesc(1L)).thenReturn(List.of());
-        when(myMapPublicInstitutionRepository.findAllByMapIdOrderByCreatedAtDesc(10L)).thenReturn(List.of(
-            buildPublicInstitution(user, 201L)
-        ));
-        when(myMapPublicInstitutionRepository.findAllByUserIdAndMapIsNullOrderByCreatedAtDesc(1L)).thenReturn(List.of());
+        UserMap secondMap = map(user, 11L, true, false, "map-uuid-11");
+        ReflectionTestUtils.setField(secondMap, "title", "맛집 지도");
+        ReflectionTestUtils.setField(secondMap, "description", "두번째 설명");
+        ReflectionTestUtils.setField(secondMap, "profileImageUrl", "https://cdn.example.com/profile-2.png");
+
+        User currentUser = user(2L, "searcher@test.com", "searcher", UserStatus.ACTIVE);
+        when(authService.getAuthenticatedUser()).thenReturn(currentUser);
+        when(userRepository.findTop20ByStatusAndNicknameContainingIgnoreCaseOrderByIdAsc(UserStatus.ACTIVE, "toggle"))
+            .thenReturn(List.of(user));
+        when(userMapRepository.findAllByOwnerUserIdInAndDeletedAtIsNullOrderByOwnerUserIdAscCreatedAtDescIdDesc(List.of(1L)))
+            .thenReturn(List.of(secondMap, firstMap));
+        when(myMapStoreRepository.findAllByMapIdAndStoreDeletedAtIsNullOrderByCreatedAtDesc(10L)).thenReturn(List.of(storeItem(user, 101L)));
+        when(myMapStoreRepository.findAllByMapIdAndStoreDeletedAtIsNullOrderByCreatedAtDesc(11L)).thenReturn(List.of(storeItem(user, 102L)));
+        when(myMapPublicInstitutionRepository.findAllByMapIdOrderByCreatedAtDesc(10L)).thenReturn(List.of(publicInstitutionItem(user, 201L)));
+        when(myMapPublicInstitutionRepository.findAllByMapIdOrderByCreatedAtDesc(11L)).thenReturn(List.of());
 
         PublicMapSearchResponse response = myMapService.searchPublicMaps("toggle");
 
-        assertThat(response.content()).hasSize(1);
-        assertThat(response.content().get(0).publicMapUuid()).isEqualTo(user.getPublicMapUuid());
+        assertThat(response.content()).hasSize(2);
+        assertThat(response.content().get(0).publicMapUuid()).isEqualTo("map-uuid-11");
         assertThat(response.content().get(0).nickname()).isEqualTo("toggle-demo");
-        assertThat(response.content().get(0).title()).isEqualTo("toggle-demo님의 지도");
-        assertThat(response.content().get(0).description()).isEqualTo("설명 텍스트");
-        assertThat(response.content().get(0).savedPlaceCount()).isEqualTo(3L);
-        assertThat(response.content().get(0).profileImageUrl()).isEqualTo("https://cdn.example.com/profile.png");
+        assertThat(response.content().get(0).title()).isEqualTo("맛집 지도");
+        assertThat(response.content().get(0).savedPlaceCount()).isEqualTo(1L);
+        assertThat(response.content().get(1).publicMapUuid()).isEqualTo("map-uuid-10");
+        assertThat(response.content().get(1).savedPlaceCount()).isEqualTo(2L);
     }
 
     @Test
-    void getMyMapShouldUseDefaultMapAndSkipSoftDeletedStores() {
+    void getPublicMapShouldResolveFromMapRowsWithoutUserBridgeLookup() {
         MyMapService myMapService = new MyMapService(
             authService,
             storeService,
@@ -255,23 +221,46 @@ class MyMapServiceTest {
             userMapRepository
         );
 
-        User user = new User("user@test.com", "password", "toggle-demo", UserRole.USER, UserStatus.ACTIVE);
-        ReflectionTestUtils.setField(user, "id", 1L);
-        ReflectionTestUtils.setField(user, "defaultMapId", 10L);
-        ReflectionTestUtils.setField(user, "publicMap", true);
-        ReflectionTestUtils.setField(user, "publicMapUuid", "public-map-uuid");
+        User owner = user(1L, "user@test.com", "toggle-demo", UserStatus.ACTIVE);
+        UserMap map = map(owner, 10L, true, false, "public-map-uuid");
+        ReflectionTestUtils.setField(map, "title", "공개 지도");
+        ReflectionTestUtils.setField(map, "description", "설명");
+        ReflectionTestUtils.setField(map, "profileImageUrl", "https://cdn.example.com/profile.png");
 
-        UserMap defaultMap = buildMap(user, 10L, true, "public-map-uuid");
+        when(userMapRepository.findByPublicMapUuidAndDeletedAtIsNull("public-map-uuid"))
+            .thenReturn(Optional.of(map));
+
+        var response = myMapService.getPublicMap("public-map-uuid");
+
+        assertThat(response.publicMapUuid()).isEqualTo("public-map-uuid");
+        assertThat(response.title()).isEqualTo("공개 지도");
+        verify(userRepository, never()).findTop20ByStatusAndNicknameContainingIgnoreCaseOrderByIdAsc(any(), anyString());
+    }
+
+    @Test
+    void getMyMapShouldUsePrimaryMapAndSkipSoftDeletedStores() {
+        MyMapService myMapService = new MyMapService(
+            authService,
+            storeService,
+            publicInstitutionService,
+            myMapStoreRepository,
+            myMapPublicInstitutionRepository,
+            userRepository,
+            userMapRepository
+        );
+
+        User user = user(1L, "user@test.com", "toggle-demo", UserStatus.ACTIVE);
+        UserMap primaryMap = map(user, 10L, true, true, "public-map-uuid");
+        ReflectionTestUtils.setField(primaryMap, "profileImageUrl", "https://cdn.example.com/profile.png");
 
         when(authService.getAuthenticatedUser()).thenReturn(user);
-        when(authService.ensurePublicMapUuid(user)).thenReturn("public-map-uuid");
-        when(userMapRepository.findByIdAndDeletedAtIsNull(10L)).thenReturn(java.util.Optional.of(defaultMap));
+        when(userMapRepository.findAllByOwnerUserIdAndDeletedAtIsNullOrderByPrimaryMapDescCreatedAtAscIdAsc(1L))
+            .thenReturn(List.of(primaryMap));
         when(myMapStoreRepository.findAllByMapIdAndStoreDeletedAtIsNullOrderByCreatedAtDesc(10L)).thenReturn(List.of());
-        when(myMapStoreRepository.findAllByUserIdAndMapIsNullOrderByCreatedAtDesc(1L)).thenReturn(List.of());
         when(myMapPublicInstitutionRepository.findAllByMapIdOrderByCreatedAtDesc(10L)).thenReturn(List.of());
-        when(myMapPublicInstitutionRepository.findAllByUserIdAndMapIsNullOrderByCreatedAtDesc(1L)).thenReturn(List.of());
 
         assertThat(myMapService.getMyMap().stores()).isEmpty();
+        assertThat(myMapService.getMyMap().mapProfile().publicMapUuid()).isEqualTo("public-map-uuid");
     }
 
     @Test
@@ -286,12 +275,9 @@ class MyMapServiceTest {
             userMapRepository
         );
 
-        User privateUser = new User("user@test.com", "password", "toggle-demo", UserRole.USER, UserStatus.ACTIVE);
-        ReflectionTestUtils.setField(privateUser, "id", 1L);
-        ReflectionTestUtils.setField(privateUser, "publicMap", false);
-        ReflectionTestUtils.setField(privateUser, "publicMapUuid", "public-map-uuid");
-
-        when(userRepository.findByPublicMapUuid("public-map-uuid")).thenReturn(java.util.Optional.of(privateUser));
+        User activeOwner = user(1L, "owner@test.com", "toggle-demo", UserStatus.ACTIVE);
+        UserMap privateMap = map(activeOwner, 10L, false, false, "public-map-uuid");
+        when(userMapRepository.findByPublicMapUuidAndDeletedAtIsNull("public-map-uuid")).thenReturn(Optional.of(privateMap));
 
         assertThatThrownBy(() -> myMapService.getPublicMap("public-map-uuid"))
             .isInstanceOf(ApiException.class)
@@ -301,12 +287,9 @@ class MyMapServiceTest {
                 assertThat(ex.getCode()).isEqualTo("PUBLIC_MAP_NOT_FOUND");
             });
 
-        User inactiveUser = new User("inactive@test.com", "password", "toggle-inactive", UserRole.USER, UserStatus.INACTIVE);
-        ReflectionTestUtils.setField(inactiveUser, "id", 2L);
-        ReflectionTestUtils.setField(inactiveUser, "publicMap", true);
-        ReflectionTestUtils.setField(inactiveUser, "publicMapUuid", "inactive-map-uuid");
-
-        when(userRepository.findByPublicMapUuid("inactive-map-uuid")).thenReturn(java.util.Optional.of(inactiveUser));
+        User inactiveOwner = user(2L, "inactive@test.com", "toggle-inactive", UserStatus.INACTIVE);
+        UserMap inactiveMap = map(inactiveOwner, 11L, true, false, "inactive-map-uuid");
+        when(userMapRepository.findByPublicMapUuidAndDeletedAtIsNull("inactive-map-uuid")).thenReturn(Optional.of(inactiveMap));
 
         assertThatThrownBy(() -> myMapService.getPublicMap("inactive-map-uuid"))
             .isInstanceOf(ApiException.class)
@@ -317,47 +300,53 @@ class MyMapServiceTest {
             });
     }
 
-    private UserMap buildMap(User owner, Long id, boolean isPublic, String publicMapUuid) {
-        UserMap map = new UserMap(owner, publicMapUuid, "지도", "설명", null, isPublic, false);
+    private User user(Long id, String email, String nickname, UserStatus status) {
+        User user = new User(email, "password", nickname, UserRole.USER, status);
+        ReflectionTestUtils.setField(user, "id", id);
+        ReflectionTestUtils.setField(user, "profileImageUrl", "https://cdn.example.com/user-" + id + ".png");
+        return user;
+    }
+
+    private UserMap map(User owner, Long id, boolean isPublic, boolean primaryMap, String publicMapUuid) {
+        UserMap map = new UserMap(owner, publicMapUuid, "지도", "설명", null, isPublic, primaryMap);
         ReflectionTestUtils.setField(map, "id", id);
         ReflectionTestUtils.setField(map, "createdAt", LocalDateTime.of(2024, 1, 1, 12, 0));
         ReflectionTestUtils.setField(map, "updatedAt", LocalDateTime.of(2024, 1, 1, 12, 0));
         return map;
     }
 
-    private MyMapStore buildStore(User owner, Long storeId) {
-        Store store = new Store(
-            ExternalSource.KAKAO,
-            "external-" + storeId,
-            "store-" + storeId,
-            null,
-            null,
-            null,
-            new BigDecimal("37.1234567"),
-            new BigDecimal("127.1234567")
-        );
-        ReflectionTestUtils.setField(store, "id", storeId);
+    private MyMapStore storeItem(User owner, Long storeId) {
+        Store store = store(storeId, "external-" + storeId, "store-" + storeId);
         store.markVerified("서울시 테스트구 테스트로 1", "서울시 테스트구 테스트로 1", "카페", "{}", null);
-
-        UserMap map = buildMap(owner, 10L, true, "map-uuid");
+        UserMap map = map(owner, 10L, true, false, "map-uuid");
         MyMapStore myMapStore = new MyMapStore(owner, map, store);
         ReflectionTestUtils.setField(myMapStore, "id", storeId + 1000);
         ReflectionTestUtils.setField(myMapStore, "createdAt", LocalDateTime.of(2024, 1, 1, 12, 0).plusSeconds(storeId));
         return myMapStore;
     }
 
-    private MyMapPublicInstitution buildPublicInstitution(User owner, Long publicInstitutionId) {
-        PublicInstitution institution = new PublicInstitution(
-            ExternalSource.KAKAO,
-            "external-" + publicInstitutionId,
-            "institution-" + publicInstitutionId
-        );
+    private MyMapPublicInstitution publicInstitutionItem(User owner, Long publicInstitutionId) {
+        PublicInstitution institution = new PublicInstitution(ExternalSource.KAKAO, "external-" + publicInstitutionId, "institution-" + publicInstitutionId);
         ReflectionTestUtils.setField(institution, "id", publicInstitutionId);
-
-        UserMap map = buildMap(owner, 10L, true, "map-p-uuid");
+        UserMap map = map(owner, 10L, true, false, "map-p-uuid");
         MyMapPublicInstitution myMapPublicInstitution = new MyMapPublicInstitution(owner, map, institution);
         ReflectionTestUtils.setField(myMapPublicInstitution, "id", publicInstitutionId + 1000);
         ReflectionTestUtils.setField(myMapPublicInstitution, "createdAt", LocalDateTime.of(2024, 1, 1, 12, 0).plusSeconds(publicInstitutionId));
         return myMapPublicInstitution;
+    }
+
+    private Store store(Long id, String externalId, String name) {
+        Store store = new Store(
+            ExternalSource.KAKAO,
+            externalId,
+            name,
+            null,
+            null,
+            null,
+            new BigDecimal("37.1234567"),
+            new BigDecimal("127.1234567")
+        );
+        ReflectionTestUtils.setField(store, "id", id);
+        return store;
     }
 }

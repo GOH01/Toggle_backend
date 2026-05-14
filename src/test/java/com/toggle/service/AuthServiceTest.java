@@ -140,17 +140,16 @@ class AuthServiceTest {
     }
 
     @Test
-    void getCurrentUserProfileShouldNotMaterializeDefaultMap() {
+    void getCurrentUserProfileShouldNotSynthesizeMapProfileForFreshUser() {
         User user = activeUser(1L, "user@test.com", "nick");
-        ReflectionTestUtils.setField(user, "publicMapUuid", "public-map-uuid");
         lenient().when(userRepository.findById(1L)).thenReturn(Optional.of(user));
-        lenient().when(userMapRepository.findByPublicMapUuidAndDeletedAtIsNull("public-map-uuid")).thenReturn(Optional.empty());
         authenticate(user);
 
         MeResponse response = authService.getCurrentUserProfile();
 
-        assertThat(response.mapProfile().publicMapUuid()).isEqualTo(user.getPublicMapUuid());
-        assertThat(response.mapProfile().title()).isEqualTo("nick님의 지도");
+        assertThat(response.mapProfile().publicMapUuid()).isNull();
+        assertThat(response.mapProfile().title()).isNull();
+        assertThat(response.mapProfile().description()).isNull();
         verify(userMapRepository, never()).save(any());
     }
 

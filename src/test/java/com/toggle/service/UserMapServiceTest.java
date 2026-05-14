@@ -92,8 +92,9 @@ class UserMapServiceTest {
         User user = new User("user@test.com", "password", "tester", UserRole.USER, UserStatus.ACTIVE);
         ReflectionTestUtils.setField(user, "id", 1L);
         when(authService.getAuthenticatedUser()).thenReturn(user);
-        when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
         AtomicLong idSequence = new AtomicLong(100L);
+        when(userMapRepository.findAllByOwnerUserIdAndDeletedAtIsNullOrderByCreatedAtDescIdDesc(1L))
+            .thenReturn(List.of(), List.of(buildMap(user, 999L, false, "existing-uuid")));
         when(userMapRepository.save(any(UserMap.class))).thenAnswer(invocation -> {
             UserMap map = invocation.getArgument(0);
             ReflectionTestUtils.setField(map, "id", idSequence.incrementAndGet());
@@ -105,7 +106,6 @@ class UserMapServiceTest {
 
         assertThat(first.mapId()).isEqualTo(101L);
         assertThat(second.mapId()).isEqualTo(102L);
-        assertThat(user.getDefaultMapId()).isEqualTo(101L);
         ArgumentCaptor<UserMap> mapCaptor = ArgumentCaptor.forClass(UserMap.class);
         verify(userMapRepository, org.mockito.Mockito.times(2)).save(mapCaptor.capture());
         List<UserMap> savedMaps = mapCaptor.getAllValues();
@@ -115,6 +115,30 @@ class UserMapServiceTest {
         assertThat(savedMaps.get(0).getPublicMapUuid()).isNotBlank();
         assertThat(savedMaps.get(1).getPublicMapUuid()).isNotBlank();
         assertThat(savedMaps.get(0).getPublicMapUuid()).isNotEqualTo(savedMaps.get(1).getPublicMapUuid());
+    }
+
+    @Test
+    void createMyMapShouldNotWriteBackToUserBridgeColumns() {
+        UserMapService service = new UserMapService(
+            authService,
+            userRepository,
+            userMapRepository,
+            userMapLikeRepository,
+            myMapStoreRepository,
+            myMapPublicInstitutionRepository,
+            storeRepository,
+            publicInstitutionRepository,
+            s3FileService
+        );
+
+        User user = new User("user@test.com", "password", "tester", UserRole.USER, UserStatus.ACTIVE);
+        ReflectionTestUtils.setField(user, "id", 1L);
+        when(authService.getAuthenticatedUser()).thenReturn(user);
+        when(userMapRepository.save(any(UserMap.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.createMyMap(user, new CreateMyMapRequest("카페 지도", "설명"));
+
+        verify(userRepository, never()).save(any(User.class));
     }
 
     @Test
@@ -275,19 +299,22 @@ class UserMapServiceTest {
 
         User user = new User("owner@test.com", "password", "owner", UserRole.USER, UserStatus.ACTIVE);
         ReflectionTestUtils.setField(user, "id", 1L);
-        ReflectionTestUtils.setField(user, "defaultMapId", 100L);
         when(authService.getAuthenticatedUser()).thenReturn(user);
-        when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(userMapRepository.findByIdAndOwnerUserIdAndDeletedAtIsNull(100L, 1L)).thenReturn(Optional.of(buildMap(user, 100L, true, "uuid-1")));
+        UserMap deletedMap = buildMap(user, 100L, true, "uuid-1");
+        ReflectionTestUtils.setField(deletedMap, "primaryMap", true);
+        UserMap replacementMap = buildMap(user, 101L, false, "uuid-2");
+        ReflectionTestUtils.setField(replacementMap, "primaryMap", false);
+        when(userMapRepository.findByIdAndOwnerUserIdAndDeletedAtIsNull(100L, 1L)).thenReturn(Optional.of(deletedMap));
         when(userMapRepository.findAllByOwnerUserIdAndDeletedAtIsNullOrderByPrimaryMapDescCreatedAtAscIdAsc(1L))
-            .thenReturn(List.of(buildMap(user, 101L, false, "uuid-2")));
+            .thenReturn(List.of(replacementMap));
+        when(userMapRepository.save(any(UserMap.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         service.deleteMyMap(100L, user);
 
         verify(myMapStoreRepository).deleteAllByMapId(100L);
         verify(myMapPublicInstitutionRepository).deleteAllByMapId(100L);
         verify(userMapLikeRepository).deleteAllByMapId(100L);
-        assertThat(user.getDefaultMapId()).isEqualTo(101L);
+        assertThat(replacementMap.isPrimary()).isTrue();
     }
 
     @Test
@@ -523,10 +550,9 @@ class UserMapServiceTest {
 
         User user = new User("owner@test.com", "password", "owner", UserRole.USER, UserStatus.ACTIVE);
         ReflectionTestUtils.setField(user, "id", 1L);
-        ReflectionTestUtils.setField(user, "defaultMapId", 101L);
         when(authService.getAuthenticatedUser()).thenReturn(user);
-        when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
         UserMap map = buildMap(user, 101L, true, "uuid-101");
+        ReflectionTestUtils.setField(map, "primaryMap", true);
         when(userMapRepository.findByIdAndOwnerUserIdAndDeletedAtIsNull(101L, 1L)).thenReturn(Optional.of(map));
         when(userMapRepository.save(any(UserMap.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(userMapLikeRepository.countByMapId(101L)).thenReturn(0L);
@@ -539,7 +565,7 @@ class UserMapServiceTest {
 
         assertThat(response.title()).isEqualTo("카페 투어 지도");
         assertThat(response.description()).isEqualTo("주말 모음");
-        assertThat(user.getMapTitle()).isEqualTo("카페 투어 지도");
+        assertThat(ReflectionTestUtils.getField(map, "title")).isEqualTo("카페 투어 지도");
     }
 
     @Test
@@ -558,11 +584,10 @@ class UserMapServiceTest {
 
         User user = new User("owner@test.com", "password", "owner", UserRole.USER, UserStatus.ACTIVE);
         ReflectionTestUtils.setField(user, "id", 1L);
-        ReflectionTestUtils.setField(user, "defaultMapId", 101L);
         ReflectionTestUtils.setField(user, "profileImageUrl", "/api/v1/files/view?key=map_profile%2Fold.png");
         when(authService.getAuthenticatedUser()).thenReturn(user);
-        when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
         UserMap map = buildMap(user, 101L, true, "uuid-101");
+        ReflectionTestUtils.setField(map, "primaryMap", true);
         ReflectionTestUtils.setField(map, "profileImageUrl", "/api/v1/files/view?key=map_profile%2Fold.png");
         when(userMapRepository.findByIdAndOwnerUserIdAndDeletedAtIsNull(101L, 1L)).thenReturn(Optional.of(map));
         when(userMapRepository.save(any(UserMap.class))).thenAnswer(invocation -> invocation.getArgument(0));

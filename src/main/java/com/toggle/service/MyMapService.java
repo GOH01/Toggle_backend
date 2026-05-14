@@ -57,37 +57,34 @@ public class MyMapService {
     @Transactional
     public MyMapResponse getMyMap() {
         User user = authService.getAuthenticatedUser();
-        UserMap defaultMap = findDefaultMap(user);
-        if (defaultMap != null) {
-            migrateLegacyPlacesToDefaultMap(user, defaultMap);
+        UserMap primaryMap = findPrimaryMap(user);
+        if (primaryMap == null) {
+            return new MyMapResponse(
+                new MeResponse.MapProfile(null, false, null, null, null),
+                List.of(),
+                List.of()
+            );
         }
+
         return new MyMapResponse(
-            buildMapProfile(user),
-            getMyMapStoreIds(user, defaultMap),
-            getMyMapPublicIds(user, defaultMap)
+            buildMapProfile(primaryMap),
+            getMyMapStoreIds(primaryMap),
+            getMyMapPublicIds(primaryMap)
         );
     }
 
     @Transactional
     public MyMapPlaceResponse addStore(Long storeId) {
         User user = authService.getAuthenticatedUser();
-        UserMap defaultMap = findDefaultMap(user);
-        if (defaultMap != null) {
-            migrateLegacyPlacesToDefaultMap(user, defaultMap);
-        }
         Store store = storeService.getRegisteredStore(storeId);
+        UserMap primaryMap = requirePrimaryMap(user);
 
-        boolean exists = defaultMap == null
-            ? myMapStoreRepository.findByUserIdAndMapIsNullAndStoreId(user.getId(), store.getId()).isPresent()
-            : myMapStoreRepository.existsByMapIdAndStoreId(defaultMap.getId(), store.getId());
-        if (exists) {
+        if (myMapStoreRepository.existsByMapIdAndStoreId(primaryMap.getId(), store.getId())) {
             throw new ApiException(HttpStatus.CONFLICT, "MY_MAP_PLACE_ALREADY_EXISTS", "이미 내 지도에 추가된 매장입니다.");
         }
 
         try {
-            MyMapStore myMapStore = defaultMap == null
-                ? myMapStoreRepository.save(new MyMapStore(user, store))
-                : myMapStoreRepository.save(new MyMapStore(user, defaultMap, store));
+            MyMapStore myMapStore = myMapStoreRepository.save(new MyMapStore(user, primaryMap, store));
             return new MyMapPlaceResponse("STORE", store.getId(), true, myMapStore.getCreatedAt());
         } catch (DataIntegrityViolationException ex) {
             throw new ApiException(HttpStatus.CONFLICT, "MY_MAP_PLACE_ALREADY_EXISTS", "이미 내 지도에 추가된 매장입니다.");
@@ -97,12 +94,8 @@ public class MyMapService {
     @Transactional
     public MyMapPlaceResponse removeStore(Long storeId) {
         User user = authService.getAuthenticatedUser();
-        UserMap defaultMap = findDefaultMap(user);
-        MyMapStore myMapStore = (defaultMap == null
-            ? myMapStoreRepository.findByUserIdAndMapIsNullAndStoreId(user.getId(), storeId)
-            : myMapStoreRepository.findByMapIdAndStoreId(defaultMap.getId(), storeId))
-            .or(() -> myMapStoreRepository.findByUserIdAndMapIsNullAndStoreId(user.getId(), storeId)
-                .filter(legacyStore -> legacyStore.getStore().getDeletedAt() == null))
+        UserMap primaryMap = requirePrimaryMap(user);
+        MyMapStore myMapStore = myMapStoreRepository.findByMapIdAndStoreId(primaryMap.getId(), storeId)
             .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "MY_MAP_PLACE_NOT_FOUND", "내 지도에서 매장을 찾을 수 없습니다."));
 
         myMapStoreRepository.delete(myMapStore);
@@ -112,23 +105,17 @@ public class MyMapService {
     @Transactional
     public MyMapPlaceResponse addPublicInstitution(Long publicInstitutionId) {
         User user = authService.getAuthenticatedUser();
-        UserMap defaultMap = findDefaultMap(user);
-        if (defaultMap != null) {
-            migrateLegacyPlacesToDefaultMap(user, defaultMap);
-        }
         PublicInstitution publicInstitution = publicInstitutionService.getInstitution(publicInstitutionId);
+        UserMap primaryMap = requirePrimaryMap(user);
 
-        boolean exists = defaultMap == null
-            ? myMapPublicInstitutionRepository.findByUserIdAndMapIsNullAndPublicInstitutionId(user.getId(), publicInstitution.getId()).isPresent()
-            : myMapPublicInstitutionRepository.existsByMapIdAndPublicInstitutionId(defaultMap.getId(), publicInstitution.getId());
-        if (exists) {
+        if (myMapPublicInstitutionRepository.existsByMapIdAndPublicInstitutionId(primaryMap.getId(), publicInstitution.getId())) {
             throw new ApiException(HttpStatus.CONFLICT, "MY_MAP_PLACE_ALREADY_EXISTS", "이미 내 지도에 추가된 공공기관입니다.");
         }
 
         try {
-            MyMapPublicInstitution myMapPublicInstitution = defaultMap == null
-                ? myMapPublicInstitutionRepository.save(new MyMapPublicInstitution(user, publicInstitution))
-                : myMapPublicInstitutionRepository.save(new MyMapPublicInstitution(user, defaultMap, publicInstitution));
+            MyMapPublicInstitution myMapPublicInstitution = myMapPublicInstitutionRepository.save(
+                new MyMapPublicInstitution(user, primaryMap, publicInstitution)
+            );
             return new MyMapPlaceResponse("PUBLIC", publicInstitution.getId(), true, myMapPublicInstitution.getCreatedAt());
         } catch (DataIntegrityViolationException ex) {
             throw new ApiException(HttpStatus.CONFLICT, "MY_MAP_PLACE_ALREADY_EXISTS", "이미 내 지도에 추가된 공공기관입니다.");
@@ -138,11 +125,8 @@ public class MyMapService {
     @Transactional
     public MyMapPlaceResponse removePublicInstitution(Long publicInstitutionId) {
         User user = authService.getAuthenticatedUser();
-        UserMap defaultMap = findDefaultMap(user);
-        MyMapPublicInstitution myMapPublicInstitution = (defaultMap == null
-            ? myMapPublicInstitutionRepository.findByUserIdAndMapIsNullAndPublicInstitutionId(user.getId(), publicInstitutionId)
-            : myMapPublicInstitutionRepository.findByMapIdAndPublicInstitutionId(defaultMap.getId(), publicInstitutionId))
-            .or(() -> myMapPublicInstitutionRepository.findByUserIdAndMapIsNullAndPublicInstitutionId(user.getId(), publicInstitutionId))
+        UserMap primaryMap = requirePrimaryMap(user);
+        MyMapPublicInstitution myMapPublicInstitution = myMapPublicInstitutionRepository.findByMapIdAndPublicInstitutionId(primaryMap.getId(), publicInstitutionId)
             .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "MY_MAP_PLACE_NOT_FOUND", "내 지도에서 공공기관을 찾을 수 없습니다."));
 
         myMapPublicInstitutionRepository.delete(myMapPublicInstitution);
@@ -156,16 +140,22 @@ public class MyMapService {
         String normalizedNickname = normalizeQuery(nickname);
         validateSearchNickname(normalizedNickname);
 
-        List<PublicMapSearchItemResponse> content = userRepository
-            .findTop20ByPublicMapTrueAndStatusAndNicknameContainingIgnoreCaseOrderByIdAsc(UserStatus.ACTIVE, normalizedNickname)
+        List<Long> ownerUserIds = userRepository.findTop20ByStatusAndNicknameContainingIgnoreCaseOrderByIdAsc(
+            UserStatus.ACTIVE,
+            normalizedNickname
+        ).stream().map(User::getId).toList();
+
+        List<PublicMapSearchItemResponse> content = userMapRepository
+            .findAllByOwnerUserIdInAndDeletedAtIsNullOrderByOwnerUserIdAscCreatedAtDescIdDesc(ownerUserIds)
             .stream()
-            .map(user -> new PublicMapSearchItemResponse(
-                user.getPublicMapUuid(),
-                user.getNickname(),
-                resolveMapTitle(user),
-                user.getMapDescription(),
-                getSavedPlaceCount(user),
-                user.getProfileImageUrl()
+            .filter(UserMap::isPublic)
+            .map(map -> new PublicMapSearchItemResponse(
+                map.getPublicMapUuid(),
+                map.getOwnerUser().getNickname(),
+                map.getTitle(),
+                map.getDescription(),
+                getSavedPlaceCount(map),
+                map.getProfileImageUrl()
             ))
             .toList();
 
@@ -174,114 +164,67 @@ public class MyMapService {
 
     @Transactional(readOnly = true)
     public UserPublicMapResponse getPublicMap(String publicMapUuid) {
-        User user = userRepository.findByPublicMapUuid(publicMapUuid)
-            .filter(User::isPublicMap)
-            .filter(candidate -> candidate.getStatus() == UserStatus.ACTIVE)
+        UserMap map = userMapRepository.findByPublicMapUuidAndDeletedAtIsNull(publicMapUuid)
+            .filter(UserMap::isPublic)
+            .filter(candidate -> candidate.getOwnerUser().getStatus() == UserStatus.ACTIVE)
             .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "PUBLIC_MAP_NOT_FOUND", "공개 지도를 찾을 수 없습니다."));
 
         return new UserPublicMapResponse(
-            user.getPublicMapUuid(),
-            user.getNickname(),
-            resolveMapTitle(user),
-            user.getMapDescription(),
-            user.getProfileImageUrl(),
-            getMyMapStoreIds(user, findDefaultMap(user)),
-            getMyMapPublicIds(user, findDefaultMap(user))
+            map.getPublicMapUuid(),
+            map.getOwnerUser().getNickname(),
+            map.getTitle(),
+            map.getDescription(),
+            map.getProfileImageUrl(),
+            getMyMapStoreIds(map),
+            getMyMapPublicIds(map)
         );
     }
 
-    private MeResponse.MapProfile buildMapProfile(User user) {
-        String publicMapUuid = authService.ensurePublicMapUuid(user);
+    private MeResponse.MapProfile buildMapProfile(UserMap map) {
         return new MeResponse.MapProfile(
-            publicMapUuid,
-            user.isPublicMap(),
-            resolveMapTitle(user),
-            user.getMapDescription(),
-            user.getProfileImageUrl()
+            map.getPublicMapUuid(),
+            map.isPublic(),
+            map.getTitle(),
+            map.getDescription(),
+            map.getProfileImageUrl()
         );
     }
 
-    private String resolveMapTitle(User user) {
-        if (user.getMapTitle() != null && !user.getMapTitle().isBlank()) {
-            return user.getMapTitle();
-        }
-        return user.getNickname() + "님의 지도";
+    private List<Long> getMyMapStoreIds(UserMap map) {
+        return myMapStoreRepository.findAllByMapIdAndStoreDeletedAtIsNullOrderByCreatedAtDesc(map.getId()).stream()
+            .map(myMapStore -> myMapStore.getStore().getId())
+            .toList();
     }
 
-    private List<Long> getMyMapStoreIds(User user, UserMap defaultMap) {
-        List<MyMapStore> mapStores = defaultMap == null
-            ? List.of()
-            : myMapStoreRepository.findAllByMapIdAndStoreDeletedAtIsNullOrderByCreatedAtDesc(defaultMap.getId());
-        List<MyMapStore> legacyStores = myMapStoreRepository.findAllByUserIdAndMapIsNullOrderByCreatedAtDesc(user.getId());
-
-        return mergePlaceIds(
-            mapStores,
-            legacyStores.stream().filter(myMapStore -> myMapStore.getStore().getDeletedAt() == null).toList(),
-            myMapStore -> myMapStore.getStore().getId()
-        );
+    private List<Long> getMyMapPublicIds(UserMap map) {
+        return myMapPublicInstitutionRepository.findAllByMapIdOrderByCreatedAtDesc(map.getId()).stream()
+            .map(myMapPublicInstitution -> myMapPublicInstitution.getPublicInstitution().getId())
+            .toList();
     }
 
-    private List<Long> getMyMapPublicIds(User user, UserMap defaultMap) {
-        List<MyMapPublicInstitution> mapPublics = defaultMap == null
-            ? List.of()
-            : myMapPublicInstitutionRepository.findAllByMapIdOrderByCreatedAtDesc(defaultMap.getId());
-        List<MyMapPublicInstitution> legacyPublics = myMapPublicInstitutionRepository.findAllByUserIdAndMapIsNullOrderByCreatedAtDesc(user.getId());
-
-        return mergePlaceIds(mapPublics, legacyPublics, myMapPublicInstitution -> myMapPublicInstitution.getPublicInstitution().getId());
+    private long getSavedPlaceCount(UserMap map) {
+        return getMyMapStoreIds(map).size() + getMyMapPublicIds(map).size();
     }
 
-    private long getSavedPlaceCount(User user) {
-        UserMap defaultMap = findDefaultMap(user);
-        return getMyMapStoreIds(user, defaultMap).size() + getMyMapPublicIds(user, defaultMap).size();
+    private UserMap findPrimaryMap(User user) {
+        return userMapRepository.findAllByOwnerUserIdAndDeletedAtIsNullOrderByPrimaryMapDescCreatedAtAscIdAsc(user.getId())
+            .stream()
+            .findFirst()
+            .orElse(null);
     }
 
-    private UserMap findDefaultMap(User user) {
-        if (user.getDefaultMapId() == null) {
-            String publicMapUuid = user.getPublicMapUuid();
-            if (publicMapUuid == null || publicMapUuid.isBlank()) {
-                return null;
-            }
-
-            return userMapRepository.findByPublicMapUuidAndDeletedAtIsNull(publicMapUuid).orElse(null);
+    private UserMap requirePrimaryMap(User user) {
+        UserMap primaryMap = findPrimaryMap(user);
+        if (primaryMap != null) {
+            return primaryMap;
         }
 
-        return userMapRepository.findByIdAndDeletedAtIsNull(user.getDefaultMapId()).orElse(null);
+        throw new ApiException(HttpStatus.NOT_FOUND, "MAP_NOT_FOUND", "지도를 찾을 수 없습니다.");
     }
 
-    private void migrateLegacyPlacesToDefaultMap(User user, UserMap defaultMap) {
-        List<MyMapStore> legacyStores = myMapStoreRepository.findAllByUserIdAndMapIsNullOrderByCreatedAtDesc(user.getId());
-        for (MyMapStore legacyStore : legacyStores) {
-            if (legacyStore.getStore().getDeletedAt() != null) {
-                myMapStoreRepository.delete(legacyStore);
-                continue;
-            }
-            Long storeId = legacyStore.getStore().getId();
-            if (myMapStoreRepository.existsByMapIdAndStoreId(defaultMap.getId(), storeId)) {
-                myMapStoreRepository.delete(legacyStore);
-                continue;
-            }
-            legacyStore.setMap(defaultMap);
-            myMapStoreRepository.save(legacyStore);
-        }
-
-        List<MyMapPublicInstitution> legacyPublics = myMapPublicInstitutionRepository.findAllByUserIdAndMapIsNullOrderByCreatedAtDesc(user.getId());
-        for (MyMapPublicInstitution legacyPublic : legacyPublics) {
-            Long publicInstitutionId = legacyPublic.getPublicInstitution().getId();
-            if (myMapPublicInstitutionRepository.existsByMapIdAndPublicInstitutionId(defaultMap.getId(), publicInstitutionId)) {
-                myMapPublicInstitutionRepository.delete(legacyPublic);
-                continue;
-            }
-            legacyPublic.setMap(defaultMap);
-            myMapPublicInstitutionRepository.save(legacyPublic);
-        }
-    }
-
-    private <T> List<Long> mergePlaceIds(List<T> mapPlaces, List<T> legacyPlaces, java.util.function.Function<T, Long> idExtractor) {
+    private <T> List<Long> mergePlaceIds(List<T> mapPlaces, java.util.function.Function<T, Long> idExtractor) {
         LinkedHashSet<Long> ids = new LinkedHashSet<>();
         mapPlaces.stream()
-            .map(idExtractor)
-            .forEach(ids::add);
-        legacyPlaces.stream()
             .map(idExtractor)
             .forEach(ids::add);
         return List.copyOf(ids);

@@ -183,11 +183,6 @@ public class AuthService {
     public UserProfileResponse updateProfileImage(MultipartFile profileImage) {
         User user = getAuthenticatedUser();
         String previousProfileImageUrl = user.getProfileImageUrl();
-        String previousDefaultMapProfileImageUrl = user.getDefaultMapId() == null
-            ? null
-            : userMapRepository.findByIdAndDeletedAtIsNull(user.getDefaultMapId())
-                .map(UserMap::getProfileImageUrl)
-                .orElse(null);
 
         S3FileService.StoredFile storedFile = s3FileService.uploadFile(profileImage, "user_profile");
         user.updateProfileImageUrl(storedFile.url());
@@ -195,10 +190,7 @@ public class AuthService {
 
         List<String> keysToDelete = new ArrayList<>();
         addObjectKey(keysToDelete, previousProfileImageUrl);
-        addObjectKey(keysToDelete, previousDefaultMapProfileImageUrl);
         deleteAfterCommitDistinct(keysToDelete, storedFile.key());
-
-        syncDefaultMapProfileImage(user, storedFile.url());
         return new UserProfileResponse(user.getId(), user.getNickname(), user.getProfileImageUrl());
     }
 
@@ -226,25 +218,18 @@ public class AuthService {
     @Transactional
     public MeResponse.MapProfile updateMyMapProfile(UpdateMyMapProfileRequest request) {
         User user = getAuthenticatedUser();
-        UserMap map = findDefaultMap(user);
+        UserMap map = findPrimaryMap(user);
         Boolean isPublic = request.isPublic();
         String title = normalizeNullableText(request.title());
         String description = normalizeNullableText(request.description());
         String profileImageUrl = normalizeNullableText(request.profileImageUrl());
 
-        if (map != null) {
-            map.update(isPublic, title, description, profileImageUrl);
-            syncUserMapBridge(user, map);
-            userMapRepository.save(map);
+        if (map == null) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "MAP_NOT_FOUND", "지도 정보를 찾을 수 없습니다.");
         }
 
-        user.updateMapProfile(
-            isPublic,
-            title,
-            description,
-            profileImageUrl
-        );
-        userRepository.save(user);
+        map.update(isPublic, title, description, profileImageUrl);
+        userMapRepository.save(map);
         return buildMapProfile(user);
     }
 
@@ -292,7 +277,7 @@ public class AuthService {
     }
 
     private MeResponse.MapProfile buildMapProfile(User user) {
-        UserMap defaultMap = findDefaultMap(user);
+        UserMap defaultMap = findPrimaryMap(user);
         if (defaultMap != null) {
             return new MeResponse.MapProfile(
                 defaultMap.getPublicMapUuid(),
@@ -304,21 +289,12 @@ public class AuthService {
         }
 
         return new MeResponse.MapProfile(
-            user.getPublicMapUuid(),
-            user.isPublicMap(),
-            resolveMapTitle(user),
-            user.getMapDescription(),
-            user.getProfileImageUrl()
+            null,
+            false,
+            null,
+            null,
+            null
         );
-    }
-
-    private String resolveMapTitle(User user) {
-        String storedTitle = normalizeNullableText(user.getMapTitle());
-        if (storedTitle != null) {
-            return storedTitle;
-        }
-
-        return user.getNickname() + "님의 지도";
     }
 
     private String normalizeNullableText(String value) {
@@ -365,83 +341,12 @@ public class AuthService {
         return atIndex > 0 ? email.substring(0, atIndex) : email;
     }
 
-    public String ensurePublicMapUuid(User user) {
-        if (!user.ensurePublicMapUuid()) {
-            return user.getPublicMapUuid();
-        }
 
-        userRepository.save(user);
-        return user.getPublicMapUuid();
-    }
-
-    public UserMap ensureDefaultMap(User user) {
-        if (user.getDefaultMapId() != null) {
-            return userMapRepository.findByIdAndDeletedAtIsNull(user.getDefaultMapId())
-                .orElseGet(() -> createDefaultMap(user));
-        }
-
-        if (user.getPublicMapUuid() != null && !user.getPublicMapUuid().isBlank()) {
-            UserMap existingByUuid = userMapRepository.findByPublicMapUuidAndDeletedAtIsNull(user.getPublicMapUuid()).orElse(null);
-            if (existingByUuid != null) {
-                user.setDefaultMapId(existingByUuid.getId());
-                userRepository.save(user);
-                syncUserMapBridge(user, existingByUuid);
-                return existingByUuid;
-            }
-        }
-
-        return createDefaultMap(user);
-    }
-
-    private UserMap findDefaultMap(User user) {
-        if (user.getDefaultMapId() != null) {
-            return userMapRepository.findByIdAndDeletedAtIsNull(user.getDefaultMapId()).orElse(null);
-        }
-
-        String publicMapUuid = normalizeNullableText(user.getPublicMapUuid());
-        if (publicMapUuid == null) {
-            return null;
-        }
-
-        return userMapRepository.findByPublicMapUuidAndDeletedAtIsNull(publicMapUuid).orElse(null);
-    }
-
-    private UserMap createDefaultMap(User user) {
-        String publicMapUuid = normalizeNullableText(user.getPublicMapUuid());
-        if (publicMapUuid == null) {
-            publicMapUuid = UUID.randomUUID().toString();
-            user.setPublicMapUuid(publicMapUuid);
-        }
-
-        UserMap created = userMapRepository.save(new UserMap(
-            user,
-            publicMapUuid,
-            resolveMapTitle(user),
-            user.getMapDescription(),
-            user.getProfileImageUrl(),
-            user.isPublicMap(),
-            true
-        ));
-        user.setDefaultMapId(created.getId());
-        syncUserMapBridge(user, created);
-        userRepository.save(user);
-        return created;
-    }
-
-    private void syncUserMapBridge(User user, UserMap map) {
-        user.updateMapProfile(map.isPublic(), map.getTitle(), map.getDescription(), map.getProfileImageUrl());
-        user.setPublicMapUuid(map.getPublicMapUuid());
-    }
-
-    private void syncDefaultMapProfileImage(User user, String profileImageUrl) {
-        if (user.getDefaultMapId() == null) {
-            return;
-        }
-
-        userMapRepository.findByIdAndDeletedAtIsNull(user.getDefaultMapId()).ifPresent(defaultMap -> {
-            defaultMap.update(defaultMap.isPublic(), defaultMap.getTitle(), defaultMap.getDescription(), profileImageUrl);
-            userMapRepository.save(defaultMap);
-        });
+    private UserMap findPrimaryMap(User user) {
+        return userMapRepository.findAllByOwnerUserIdAndDeletedAtIsNullOrderByPrimaryMapDescCreatedAtAscIdAsc(user.getId())
+            .stream()
+            .findFirst()
+            .orElse(null);
     }
 
     private String normalizeNickname(String nickname) {
