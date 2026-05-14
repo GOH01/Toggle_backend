@@ -7,6 +7,7 @@ import com.toggle.dto.kakao.KakaoKeywordSearchRequest;
 import com.toggle.dto.kakao.KakaoKeywordSearchResponse;
 import com.toggle.dto.kakao.KakaoNearbySearchRequest;
 import com.toggle.dto.kakao.KakaoPlaceSearchResponse;
+import com.toggle.global.config.KakaoClientProperties;
 import com.toggle.global.exception.ApiException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,7 +17,6 @@ import java.util.List;
 import java.util.Map;
 import java.net.URI;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
@@ -34,16 +34,16 @@ public class KakaoPlaceClient {
 
     private final RestTemplate kakaoRestTemplate;
     private final ObjectMapper objectMapper;
-    private final String kakaoBaseUrl;
+    private final KakaoClientProperties kakaoClientProperties;
 
     public KakaoPlaceClient(
         @Qualifier("kakaoRestTemplate") RestTemplate kakaoRestTemplate,
         ObjectMapper objectMapper,
-        @Value("${app.kakao.base-url}") String kakaoBaseUrl
+        KakaoClientProperties kakaoClientProperties
     ) {
         this.kakaoRestTemplate = kakaoRestTemplate;
         this.objectMapper = objectMapper;
-        this.kakaoBaseUrl = kakaoBaseUrl;
+        this.kakaoClientProperties = kakaoClientProperties;
     }
 
     public List<KakaoKeywordSearchResponse.KakaoPlaceDocument> searchByKeyword(String query) {
@@ -56,7 +56,9 @@ public class KakaoPlaceClient {
             KakaoKeywordSearchResponse.class
         );
 
-        return body == null || body.documents() == null ? List.of() : body.documents();
+        List<KakaoKeywordSearchResponse.KakaoPlaceDocument> documents = body == null || body.documents() == null ? List.of() : body.documents();
+        log.info("Kakao keyword documents size = {}", documents.size());
+        return documents;
     }
 
     public KakaoAddressSearchResponse searchByAddress(String query) {
@@ -79,7 +81,9 @@ public class KakaoPlaceClient {
 
         try {
             KakaoAddressSearchResponse response = objectMapper.readValue(body, KakaoAddressSearchResponse.class);
-            return response == null || response.documents() == null ? new KakaoAddressSearchResponse(List.of()) : response;
+            KakaoAddressSearchResponse normalized = response == null || response.documents() == null ? new KakaoAddressSearchResponse(List.of()) : response;
+            log.info("Kakao address documents size = {}", normalized.documents().size());
+            return normalized;
         } catch (Exception ex) {
             throw new KakaoAddressSearchException(
                 "/v2/local/search/address.json",
@@ -103,10 +107,12 @@ public class KakaoPlaceClient {
         params.put("size", request.size());
         params.put("sort", normalizeOptional(request.sort()));
 
-        return normalizeSearchResponse(exchange(
+        KakaoPlaceSearchResponse response = normalizeSearchResponse(exchange(
             buildUri("/v2/local/search/keyword.json", params),
             KakaoPlaceSearchResponse.class
         ));
+        log.info("Kakao keyword search response documents size = {}", response.documents() == null ? 0 : response.documents().size());
+        return response;
     }
 
     public KakaoPlaceSearchResponse searchCategory(KakaoCategorySearchRequest request) {
@@ -119,10 +125,12 @@ public class KakaoPlaceClient {
         params.put("size", request.size());
         params.put("sort", normalizeOptional(request.sort()));
 
-        return normalizeSearchResponse(exchange(
+        KakaoPlaceSearchResponse response = normalizeSearchResponse(exchange(
             buildUri("/v2/local/search/category.json", params),
             KakaoPlaceSearchResponse.class
         ));
+        log.info("Kakao category search response documents size = {}", response.documents() == null ? 0 : response.documents().size());
+        return response;
     }
 
     public KakaoPlaceSearchResponse searchNearby(KakaoNearbySearchRequest request) {
@@ -145,8 +153,10 @@ public class KakaoPlaceClient {
                 HttpEntity.EMPTY,
                 responseType
             );
+            log.info("Kakao API response url = {}, status = {}, body = {}", url, response.getStatusCode(), safeBody(response.getBody()));
             return response.getBody();
         } catch (HttpStatusCodeException ex) {
+            log.warn("Kakao API error url = {}, status = {}, body = {}", url, ex.getStatusCode(), ex.getResponseBodyAsString(), ex);
             throw mapException(ex);
         } catch (ApiException ex) {
             throw ex;
@@ -163,12 +173,14 @@ public class KakaoPlaceClient {
                 HttpEntity.EMPTY,
                 responseType
             );
+            log.info("Kakao address API response url = {}, status = {}, body = {}", url, response.getStatusCode(), safeBody(response.getBody()));
             return response.getBody();
         } catch (HttpStatusCodeException ex) {
             HttpStatus status = HttpStatus.resolve(ex.getStatusCode().value());
             if (status == null) {
                 status = HttpStatus.SERVICE_UNAVAILABLE;
             }
+            log.warn("Kakao address API error url = {}, status = {}, body = {}", url, status, ex.getResponseBodyAsString(), ex);
             throw new KakaoAddressSearchException(
                 url.getPath(),
                 url.getQuery(),
@@ -190,7 +202,7 @@ public class KakaoPlaceClient {
     }
 
     private URI buildUri(String path, Map<String, Object> queryParams) {
-        UriComponentsBuilder builder = UriComponentsBuilder.fromHttpUrl(kakaoBaseUrl).path(path);
+        UriComponentsBuilder builder = UriComponentsBuilder.fromHttpUrl(kakaoClientProperties.baseUrl()).path(path);
         queryParams.forEach((key, value) -> {
             if (value == null) {
                 return;
@@ -201,6 +213,18 @@ public class KakaoPlaceClient {
             builder.queryParam(key, value);
         });
         return builder.build().encode().toUri();
+    }
+
+    private String safeBody(Object body) {
+        if (body == null) {
+            return "<null>";
+        }
+
+        try {
+            return objectMapper.writeValueAsString(body);
+        } catch (Exception ex) {
+            return String.valueOf(body);
+        }
     }
 
     private KakaoPlaceSearchResponse normalizeSearchResponse(KakaoPlaceSearchResponse body) {

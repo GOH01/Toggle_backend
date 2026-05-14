@@ -12,6 +12,7 @@ import com.toggle.dto.kakao.KakaoAddressSearchResponse;
 import com.toggle.dto.kakao.KakaoCategorySearchRequest;
 import com.toggle.dto.kakao.KakaoKeywordSearchRequest;
 import com.toggle.dto.kakao.KakaoPlaceSearchResponse;
+import com.toggle.global.config.KakaoClientProperties;
 import com.toggle.global.exception.ApiException;
 import java.nio.charset.StandardCharsets;
 import java.net.URI;
@@ -53,7 +54,11 @@ class KakaoPlaceClientTest {
         when(restTemplate.exchange(any(URI.class), any(HttpMethod.class), any(HttpEntity.class), any(Class.class)))
             .thenReturn(ResponseEntity.ok(responseBody));
 
-        KakaoPlaceClient client = new KakaoPlaceClient(restTemplate, new ObjectMapper(), "https://dapi.kakao.com");
+        KakaoPlaceClient client = new KakaoPlaceClient(
+            restTemplate,
+            new ObjectMapper(),
+            new KakaoClientProperties("test-kakao-key", "https://dapi.kakao.com", "kakao.api-key", "kakao.base-url")
+        );
         ArgumentCaptor<URI> urlCaptor = ArgumentCaptor.forClass(URI.class);
 
         KakaoPlaceSearchResponse response = client.searchKeyword(
@@ -95,7 +100,11 @@ class KakaoPlaceClientTest {
         when(restTemplate.exchange(any(URI.class), any(HttpMethod.class), any(HttpEntity.class), any(Class.class)))
             .thenReturn(ResponseEntity.ok(responseBody));
 
-        KakaoPlaceClient client = new KakaoPlaceClient(restTemplate, new ObjectMapper(), "https://dapi.kakao.com");
+        KakaoPlaceClient client = new KakaoPlaceClient(
+            restTemplate,
+            new ObjectMapper(),
+            new KakaoClientProperties("test-kakao-key", "https://dapi.kakao.com", "kakao.api-key", "kakao.base-url")
+        );
         ArgumentCaptor<URI> urlCaptor = ArgumentCaptor.forClass(URI.class);
 
         KakaoAddressSearchResponse response = client.searchByAddress(" 경기 안양시 만안구 안양로 96 ");
@@ -121,7 +130,11 @@ class KakaoPlaceClientTest {
                 StandardCharsets.UTF_8
             ));
 
-        KakaoPlaceClient client = new KakaoPlaceClient(restTemplate, new ObjectMapper(), "https://dapi.kakao.com");
+        KakaoPlaceClient client = new KakaoPlaceClient(
+            restTemplate,
+            new ObjectMapper(),
+            new KakaoClientProperties("test-kakao-key", "https://dapi.kakao.com", "kakao.api-key", "kakao.base-url")
+        );
 
         assertThatThrownBy(() -> client.searchCategory(
             new KakaoCategorySearchRequest("CE7", 37.0, 127.0, 2000, 1, 15, "distance")

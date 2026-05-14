@@ -1,16 +1,19 @@
 package com.toggle.global.config;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpHeaders;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Primary;
 import org.springframework.web.client.RestTemplate;
 
 @Configuration
 public class KakaoClientConfig {
+
+    private static final Logger log = LoggerFactory.getLogger(KakaoClientConfig.class);
 
     @Bean
     @Primary
@@ -22,12 +25,20 @@ public class KakaoClientConfig {
     @Qualifier("kakaoRestTemplate")
     RestTemplate kakaoRestTemplate(
         RestTemplateBuilder builder,
-        @Value("${app.kakao.api-key}") String apiKey,
-        @Value("${app.kakao.base-url}") String baseUrl
+        KakaoClientProperties properties
     ) {
+        if (!properties.hasApiKey()) {
+            throw new IllegalStateException("Kakao api-key must be configured before creating kakaoRestTemplate");
+        }
+        log.info(
+            "Kakao authorization header configured = {}, apiKeySource = {}, baseUrl = {}",
+            properties.hasApiKey(),
+            properties.apiKeySource(),
+            properties.baseUrl()
+        );
         return builder
-            .rootUri(baseUrl)
-            .defaultHeader(HttpHeaders.AUTHORIZATION, "KakaoAK " + apiKey)
+            .rootUri(properties.baseUrl())
+            .defaultHeader(HttpHeaders.AUTHORIZATION, "KakaoAK " + properties.apiKey())
             .build();
     }
 }
