@@ -2,6 +2,7 @@ package com.toggle.controller;
 
 import com.toggle.dto.review.StoreReviewCreateRequest;
 import com.toggle.dto.review.StoreReviewItemResponse;
+import com.toggle.dto.review.StoreReviewMinePageResponse;
 import com.toggle.dto.review.StoreReviewMineResponse;
 import com.toggle.dto.review.StoreReviewPageResponse;
 import com.toggle.dto.review.StoreReviewUpdateRequest;
@@ -52,6 +53,14 @@ public class StoreReviewController {
     ) {
         validateSort(sort);
         return ApiResponse.ok(storeReviewService.getMyStoreReviews(storeId, page, size, sort));
+    }
+
+    @GetMapping("/reviews/mine")
+    public ApiResponse<StoreReviewMinePageResponse> getMyReviews(
+        @RequestParam(defaultValue = "0") int page,
+        @RequestParam(defaultValue = "20") int size
+    ) {
+        return ApiResponse.ok(storeReviewService.getMyReviews(page, size));
     }
 
     @PostMapping("/stores/{storeId}/reviews")

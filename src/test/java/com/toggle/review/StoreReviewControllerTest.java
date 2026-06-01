@@ -15,6 +15,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.toggle.dto.review.StoreReviewCreateRequest;
 import com.toggle.dto.review.StoreReviewItemResponse;
+import com.toggle.dto.review.StoreReviewMinePageResponse;
 import com.toggle.dto.review.StoreReviewMineResponse;
 import com.toggle.dto.review.StoreReviewPageResponse;
 import com.toggle.dto.review.StoreReviewSummaryResponse;
@@ -90,6 +91,25 @@ class StoreReviewControllerTest {
     }
 
     @Test
+    void myReviewsListShouldRequireAuthentication() throws Exception {
+        when(storeReviewService.getMyReviews(anyInt(), anyInt()))
+            .thenReturn(new StoreReviewMinePageResponse(
+                List.of(),
+                0,
+                20,
+                0,
+                0
+            ));
+
+        mockMvc.perform(get("/api/v1/reviews/mine"))
+            .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(get("/api/v1/reviews/mine").with(user("tester")))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.success").value(true));
+    }
+
+    @Test
     void writeRoutesShouldRequireAuthentication() throws Exception {
         mockMvc.perform(post("/api/v1/stores/{storeId}/reviews", 1L)
                 .contentType(MediaType.APPLICATION_JSON)
@@ -111,6 +131,7 @@ class StoreReviewControllerTest {
             .thenReturn(new StoreReviewItemResponse(
                 1L,
                 1L,
+                "테스트 매장",
                 2L,
                 "tester",
                 5,

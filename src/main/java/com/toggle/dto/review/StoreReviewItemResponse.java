@@ -6,6 +6,7 @@ import java.util.List;
 public record StoreReviewItemResponse(
     Long reviewId,
     Long storeId,
+    String storeName,
     Long userId,
     String displayName,
     int rating,

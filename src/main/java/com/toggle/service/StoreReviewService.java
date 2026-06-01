@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.toggle.dto.review.StoreReviewCreateRequest;
 import com.toggle.dto.review.StoreReviewItemResponse;
+import com.toggle.dto.review.StoreReviewMinePageResponse;
 import com.toggle.dto.review.StoreReviewMineResponse;
 import com.toggle.dto.review.StoreReviewPageResponse;
 import com.toggle.dto.review.StoreReviewSummaryResponse;
@@ -177,6 +178,20 @@ public class StoreReviewService {
         );
     }
 
+    @Transactional(readOnly = true)
+    public StoreReviewMinePageResponse getMyReviews(int page, int size) {
+        validatePageRequest(page, size);
+        User user = authService.getAuthenticatedUser();
+        Page<StoreReview> reviews = storeReviewRepository.findAllByUserIdOrderByCreatedAtDesc(user.getId(), PageRequest.of(page, size));
+        return new StoreReviewMinePageResponse(
+            toItemResponses(reviews.getContent()),
+            reviews.getNumber(),
+            reviews.getSize(),
+            reviews.getTotalElements(),
+            reviews.getTotalPages()
+        );
+    }
+
     private void refreshStoreReviewSummary(Store store) {
         long reviewCount = storeReviewRepository.countByStoreId(store.getId());
         Double averageRating = storeReviewRepository.findAverageRatingByStoreId(store.getId());
@@ -270,6 +285,7 @@ public class StoreReviewService {
         return new StoreReviewItemResponse(
             review.getId(),
             review.getStore().getId(),
+            review.getStore().getName(),
             review.getUser().getId(),
             resolveAuthorNickname(review.getUser()),
             review.getRating(),

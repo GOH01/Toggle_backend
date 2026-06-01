@@ -12,6 +12,7 @@ import static org.mockito.Mockito.when;
 
 import com.toggle.dto.review.StoreReviewCreateRequest;
 import com.toggle.dto.review.StoreReviewItemResponse;
+import com.toggle.dto.review.StoreReviewMinePageResponse;
 import com.toggle.dto.review.StoreReviewMineResponse;
 import com.toggle.dto.review.StoreReviewPageResponse;
 import com.toggle.dto.review.StoreReviewUpdateRequest;
@@ -93,6 +94,7 @@ class StoreReviewServiceTest {
         lenient().when(storeRepository.save(any(Store.class))).thenAnswer(invocation -> invocation.getArgument(0));
         lenient().when(storeReviewRepository.save(any(StoreReview.class))).thenAnswer(invocation -> registerReview(invocation.getArgument(0)));
         lenient().when(storeReviewRepository.findById(anyLong())).thenAnswer(invocation -> findReviewById(invocation.getArgument(0)));
+        lenient().when(storeReviewRepository.findAllByUserIdOrderByCreatedAtDesc(anyLong(), any(Pageable.class))).thenAnswer(invocation -> pageForUser(invocation.getArgument(0), "latest"));
         lenient().when(storeReviewRepository.findAllByStoreIdOrderByCreatedAtDesc(anyLong(), any(Pageable.class))).thenAnswer(invocation -> pageForStore(invocation.getArgument(0), null));
         lenient().when(storeReviewRepository.findAllByStoreIdAndUserIdOrderByCreatedAtDesc(anyLong(), anyLong(), any(Pageable.class))).thenAnswer(invocation -> pageForStore(invocation.getArgument(0), invocation.getArgument(1)));
         lenient().when(storeReviewRepository.findAllByStoreIdOrderByRatingDescCreatedAtDescIdDesc(anyLong(), any(Pageable.class))).thenAnswer(invocation -> pageForStoreBySort(invocation.getArgument(0), null, "rating_desc"));
@@ -273,6 +275,28 @@ class StoreReviewServiceTest {
     }
 
     @Test
+    void getMyReviewsShouldReturnOnlyTheCurrentUsersReviewsAcrossStores() {
+        Store otherStore = buildStore(11L, "review-store-11", "다른 매장");
+        Store thirdStore = buildStore(12L, "review-store-12", "세 번째 매장");
+        seedReview(author, 3, "내 리뷰 A");
+        seedReview(otherUser, 5, "남의 리뷰");
+        store = otherStore;
+        seedReview(author, 5, "내 리뷰 B");
+        store = thirdStore;
+        seedReview(author, 4, "내 리뷰 C");
+        store = buildStore(10L, "review-store-10");
+
+        StoreReviewMinePageResponse response = storeReviewService.getMyReviews(0, 20);
+
+        assertThat(response.content())
+            .extracting(StoreReviewItemResponse::content)
+            .containsExactly("내 리뷰 C", "내 리뷰 B", "내 리뷰 A");
+        assertThat(response.content())
+            .extracting(StoreReviewItemResponse::storeName)
+            .containsExactly("세 번째 매장", "다른 매장", "테스트 매장");
+    }
+
+    @Test
     void updateReviewShouldRefreshSummaryAndRejectNonOwnerWith403AndMissingWith404() {
         StoreReview firstReview = seedReview(author, 5, "첫 번째 리뷰");
         StoreReview secondReview = seedReview(author, 1, "수정 대상 리뷰");
@@ -427,10 +451,14 @@ class StoreReviewServiceTest {
     }
 
     private Store buildStore(Long id, String externalPlaceId) {
+        return buildStore(id, externalPlaceId, "테스트 매장");
+    }
+
+    private Store buildStore(Long id, String externalPlaceId, String name) {
         Store builtStore = new Store(
             ExternalSource.KAKAO,
             externalPlaceId,
-            "테스트 매장",
+            name,
             "02-123-4567",
             "서울시 테스트구 테스트로 1",
             "서울시 테스트구 테스트로 1",
@@ -514,6 +542,20 @@ class StoreReviewServiceTest {
             default -> stream.sorted(latestComparator).toList();
         };
 
+        return new PageImpl<>(filtered, PageRequest.of(0, Math.max(filtered.size(), 1)), filtered.size());
+    }
+
+    private PageImpl<StoreReview> pageForUser(Object userId, String sort) {
+        Long requestedUserId = (Long) userId;
+
+        java.util.stream.Stream<StoreReview> stream = reviews.stream()
+            .filter(review -> review.getUser().getId().equals(requestedUserId));
+
+        Comparator<StoreReview> latestComparator = Comparator
+            .comparing(StoreReview::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder()))
+            .thenComparing(StoreReview::getId, Comparator.reverseOrder());
+
+        List<StoreReview> filtered = stream.sorted(latestComparator).toList();
         return new PageImpl<>(filtered, PageRequest.of(0, Math.max(filtered.size(), 1)), filtered.size());
     }
 

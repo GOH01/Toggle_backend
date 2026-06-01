@@ -111,6 +111,27 @@ class StoreReviewRepositoryTest {
     }
 
     @Test
+    void globalMineListingShouldReturnOnlyTheCurrentUsersReviewsAcrossStoresNewestFirst() {
+        User mine = userRepository.save(createUser("reviewer-8@toggle.com", "reviewer-eight"));
+        User other = userRepository.save(createUser("reviewer-9@toggle.com", "reviewer-nine"));
+        Store storeA = storeRepository.save(createStore("store-review-6"));
+        Store storeB = storeRepository.save(createStore("store-review-7"));
+        Store storeC = storeRepository.save(createStore("store-review-8"));
+
+        persistReview(mine, storeA, 2, "내 리뷰 A", LocalDateTime.of(2026, 4, 23, 8, 0));
+        persistReview(other, storeB, 5, "남의 리뷰", LocalDateTime.of(2026, 4, 23, 9, 0));
+        persistReview(mine, storeB, 4, "내 리뷰 B", LocalDateTime.of(2026, 4, 23, 10, 0));
+        persistReview(mine, storeC, 5, "내 리뷰 C", LocalDateTime.of(2026, 4, 23, 12, 0));
+
+        assertThat(storeReviewRepository.findAllByUserIdOrderByCreatedAtDesc(
+            mine.getId(),
+            PageRequest.of(0, 10)
+        ).getContent())
+            .extracting(StoreReview::getContent)
+            .containsExactly("내 리뷰 C", "내 리뷰 B", "내 리뷰 A");
+    }
+
+    @Test
     void equalTimestampsShouldUseIdAsTheTieBreaker() {
         User author = userRepository.save(createUser("reviewer-6@toggle.com", "reviewer-six"));
         Store store = storeRepository.save(createStore("store-review-4"));

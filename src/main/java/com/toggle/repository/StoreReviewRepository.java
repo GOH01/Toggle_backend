@@ -136,6 +136,22 @@ public interface StoreReviewRepository extends JpaRepository<StoreReview, Long> 
         Pageable pageable
     );
 
+    @EntityGraph(attributePaths = {"user", "store"})
+    @Query(
+        value = """
+            select r
+            from StoreReview r
+            where r.user.id = :userId
+            order by r.createdAt desc, r.id desc
+            """,
+        countQuery = """
+            select count(r)
+            from StoreReview r
+            where r.user.id = :userId
+            """
+    )
+    Page<StoreReview> findAllByUserIdOrderByCreatedAtDesc(@Param("userId") Long userId, Pageable pageable);
+
     long countByStoreId(Long storeId);
 
     @Query("select avg(r.rating) from StoreReview r where r.store.id = :storeId")
