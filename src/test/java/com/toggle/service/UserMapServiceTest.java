@@ -3,11 +3,13 @@ package com.toggle.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.toggle.dto.map.CreateMyMapRequest;
+import com.toggle.dto.map.LikedPublicMapListResponse;
 import com.toggle.dto.map.PublicMapListResponse;
 import com.toggle.dto.map.UpdateUserMapMetadataRequest;
 import com.toggle.dto.map.UserMapSummaryResponse;
@@ -42,6 +44,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -438,8 +441,80 @@ class UserMapServiceTest {
                 ApiException ex = (ApiException) throwable;
                 assertThat(ex.getStatus()).isEqualTo(HttpStatus.CONFLICT);
                 assertThat(ex.getCode()).isEqualTo("MAP_LIKE_ALREADY_EXISTS");
-            });
+        });
         verify(userMapLikeRepository, never()).save(any());
+    }
+
+    @Test
+    void getLikedPublicMapsShouldReturnLikedMapsInLatestLikedOrder() {
+        UserMapService service = new UserMapService(
+            authService,
+            userRepository,
+            userMapRepository,
+            userMapLikeRepository,
+            myMapStoreRepository,
+            myMapPublicInstitutionRepository,
+            storeRepository,
+            publicInstitutionRepository,
+            s3FileService
+        );
+
+        User user = new User("user@test.com", "password", "tester", UserRole.USER, UserStatus.ACTIVE);
+        ReflectionTestUtils.setField(user, "id", 1L);
+        User owner = new User("owner@test.com", "password", "owner", UserRole.USER, UserStatus.ACTIVE);
+        ReflectionTestUtils.setField(owner, "id", 2L);
+
+        UserMap firstMap = buildMap(owner, 50L, true, "uuid-50");
+        ReflectionTestUtils.setField(firstMap, "title", "첫 번째 지도");
+        ReflectionTestUtils.setField(firstMap, "profileImageUrl", "https://cdn.example.com/map-50.png");
+        UserMap secondMap = buildMap(owner, 51L, true, "uuid-51");
+        ReflectionTestUtils.setField(secondMap, "title", "두 번째 지도");
+        ReflectionTestUtils.setField(secondMap, "profileImageUrl", "https://cdn.example.com/map-51.png");
+
+        UserMapLike firstLike = new UserMapLike(firstMap, user);
+        ReflectionTestUtils.setField(firstLike, "createdAt", LocalDateTime.of(2024, 1, 1, 12, 0));
+        UserMapLike secondLike = new UserMapLike(secondMap, user);
+        ReflectionTestUtils.setField(secondLike, "createdAt", LocalDateTime.of(2024, 1, 2, 12, 0));
+
+        when(userMapLikeRepository.findAllByUserIdAndMapIsPublicTrueAndMapDeletedAtIsNullOrderByCreatedAtDesc(eq(1L), any(PageRequest.class)))
+            .thenReturn(new PageImpl<>(List.of(secondLike, firstLike), PageRequest.of(0, 20), 2));
+        when(userMapLikeRepository.countByMapId(51L)).thenReturn(7L);
+        when(userMapLikeRepository.countByMapId(50L)).thenReturn(3L);
+
+        LikedPublicMapListResponse response = service.getLikedPublicMaps(user, 0, 20);
+
+        assertThat(response.content()).hasSize(2);
+        assertThat(response.content().get(0).mapId()).isEqualTo(51L);
+        assertThat(response.content().get(0).likedAt()).isEqualTo(LocalDateTime.of(2024, 1, 2, 12, 0));
+        assertThat(response.content().get(0).likeCount()).isEqualTo(7L);
+        assertThat(response.content().get(1).mapId()).isEqualTo(50L);
+        assertThat(response.totalElements()).isEqualTo(2L);
+    }
+
+    @Test
+    void getLikedPublicMapsShouldReturnEmptyContentWhenNoLikes() {
+        UserMapService service = new UserMapService(
+            authService,
+            userRepository,
+            userMapRepository,
+            userMapLikeRepository,
+            myMapStoreRepository,
+            myMapPublicInstitutionRepository,
+            storeRepository,
+            publicInstitutionRepository,
+            s3FileService
+        );
+
+        User user = new User("user@test.com", "password", "tester", UserRole.USER, UserStatus.ACTIVE);
+        ReflectionTestUtils.setField(user, "id", 1L);
+
+        when(userMapLikeRepository.findAllByUserIdAndMapIsPublicTrueAndMapDeletedAtIsNullOrderByCreatedAtDesc(eq(1L), any(PageRequest.class)))
+            .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 20), 0));
+
+        LikedPublicMapListResponse response = service.getLikedPublicMaps(user, 0, 20);
+
+        assertThat(response.content()).isEmpty();
+        assertThat(response.totalElements()).isZero();
     }
 
     @Test

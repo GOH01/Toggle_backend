@@ -3,6 +3,7 @@ package com.toggle.controller;
 import com.toggle.dto.map.MapLikeResponse;
 import com.toggle.dto.map.PublicMapListResponse;
 import com.toggle.dto.map.CreateMyMapRequest;
+import com.toggle.dto.map.LikedPublicMapListResponse;
 import com.toggle.dto.map.UpdateUserMapMetadataRequest;
 import com.toggle.dto.map.UserMapDetailResponse;
 import com.toggle.dto.map.UserMapSummaryResponse;
@@ -157,5 +158,14 @@ public class UserMapController {
     @GetMapping("/maps/{mapId}/likes")
     public ApiResponse<MapLikeResponse> getLikes(@PathVariable Long mapId) {
         return ApiResponse.ok(userMapService.getLikes(mapId));
+    }
+
+    @GetMapping("/my-maps/liked")
+    public ApiResponse<LikedPublicMapListResponse> getLikedPublicMaps(
+        @RequestParam(defaultValue = "0") int page,
+        @RequestParam(defaultValue = "20") int size
+    ) {
+        User user = authService.getAuthenticatedUser();
+        return ApiResponse.ok(userMapService.getLikedPublicMaps(user, page, size));
     }
 }

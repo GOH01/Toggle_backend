@@ -409,6 +409,147 @@ class ToggleBackendApplicationTests {
     }
 
     @Test
+    void likedPublicMapsEndpointShouldRequireAuthenticationAndReturnLikedMaps() throws Exception {
+        String ownerOneToken = signupAndLoginMember("liked-owner-one@toggle.com", "liked-owner-one");
+        String ownerTwoToken = signupAndLoginMember("liked-owner-two@toggle.com", "liked-owner-two");
+        String likerToken = signupAndLoginMember("liked-user@toggle.com", "liked-user");
+
+        long firstMapId = createMyMap(ownerOneToken, "좋아요 지도 1", "첫 번째 공개 지도");
+        long secondMapId = createMyMap(ownerTwoToken, "좋아요 지도 2", "두 번째 공개 지도");
+
+        mockMvc.perform(put("/api/v1/my-maps/{mapId}", firstMapId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + ownerOneToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "title": "좋아요 지도 1",
+                      "description": "첫 번째 공개 지도",
+                      "isPublic": true,
+                      "profileImageUrl": null
+                    }
+                    """))
+            .andExpect(status().isOk());
+
+        mockMvc.perform(put("/api/v1/my-maps/{mapId}", secondMapId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + ownerTwoToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "title": "좋아요 지도 2",
+                      "description": "두 번째 공개 지도",
+                      "isPublic": true,
+                      "profileImageUrl": null
+                    }
+                    """))
+            .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/v1/my-maps/liked"))
+            .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(post("/api/v1/maps/{mapId}/likes", secondMapId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + likerToken))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.likedByMe").value(true));
+
+        mockMvc.perform(post("/api/v1/maps/{mapId}/likes", firstMapId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + likerToken))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.likedByMe").value(true));
+
+        String likedMapsResponse = mockMvc.perform(get("/api/v1/my-maps/liked")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + likerToken))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.content.length()").value(2))
+            .andExpect(jsonPath("$.data.content[0].mapId").value(firstMapId))
+            .andExpect(jsonPath("$.data.content[0].nickname").value("liked-owner-one"))
+            .andExpect(jsonPath("$.data.content[0].likedAt").exists())
+            .andExpect(jsonPath("$.data.content[1].mapId").value(secondMapId))
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+
+        mockMvc.perform(delete("/api/v1/maps/{mapId}/likes", firstMapId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + likerToken))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.likedByMe").value(false));
+
+        mockMvc.perform(get("/api/v1/my-maps/liked")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + likerToken))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.content.length()").value(1))
+            .andExpect(jsonPath("$.data.content[0].mapId").value(secondMapId));
+
+        Assertions.assertThat(objectMapper.readTree(likedMapsResponse).path("data").path("totalElements").asLong()).isEqualTo(2L);
+    }
+
+    @Test
+    void likedPublicMapsEndpointShouldExcludeMapsThatBecomePrivateOrDeleted() throws Exception {
+        String ownerOneToken = signupAndLoginMember("liked-filter-owner-one@toggle.com", "liked-filter-owner-one");
+        String ownerTwoToken = signupAndLoginMember("liked-filter-owner-two@toggle.com", "liked-filter-owner-two");
+        String likerToken = signupAndLoginMember("liked-filter-user@toggle.com", "liked-filter-user");
+
+        long privateMapId = createMyMap(ownerOneToken, "비공개 전환 지도", "첫 번째 지도");
+        long deletedMapId = createMyMap(ownerTwoToken, "삭제 예정 지도", "두 번째 지도");
+
+        mockMvc.perform(put("/api/v1/my-maps/{mapId}", privateMapId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + ownerOneToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "title": "비공개 전환 지도",
+                      "description": "첫 번째 지도",
+                      "isPublic": true,
+                      "profileImageUrl": null
+                    }
+                    """))
+            .andExpect(status().isOk());
+
+        mockMvc.perform(put("/api/v1/my-maps/{mapId}", deletedMapId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + ownerTwoToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "title": "삭제 예정 지도",
+                      "description": "두 번째 지도",
+                      "isPublic": true,
+                      "profileImageUrl": null
+                    }
+                    """))
+            .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/v1/maps/{mapId}/likes", privateMapId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + likerToken))
+            .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/v1/maps/{mapId}/likes", deletedMapId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + likerToken))
+            .andExpect(status().isOk());
+
+        mockMvc.perform(put("/api/v1/my-maps/{mapId}", privateMapId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + ownerOneToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "title": "비공개 전환 지도",
+                      "description": "첫 번째 지도",
+                      "isPublic": false,
+                      "profileImageUrl": null
+                    }
+                    """))
+            .andExpect(status().isOk());
+
+        mockMvc.perform(delete("/api/v1/my-maps/{mapId}", deletedMapId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + ownerTwoToken))
+            .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/v1/my-maps/liked")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + likerToken))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.content").isEmpty())
+            .andExpect(jsonPath("$.data.totalElements").value(0));
+    }
+
+    @Test
     void myMapsShouldAllowSameStoreAcrossDifferentMapsButBlockSameMapDuplicates() throws Exception {
         String accessToken = signupAndLoginMember("multi-map@toggle.com");
         Long storeId = createStore("multi-map-target", "다중 지도 저장 대상", "카페", "37.4980950", "127.0276100");
@@ -1440,9 +1581,13 @@ class ToggleBackendApplicationTests {
     }
 
     private String signupAndLoginMember(String email) throws Exception {
+        return signupAndLoginMember(email, "tester");
+    }
+
+    private String signupAndLoginMember(String email, String displayName) throws Exception {
         mockMvc.perform(post("/api/v1/auth/signup")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(new SignupRequest(email, "password123!", "tester", null, UserRole.USER))))
+                .content(objectMapper.writeValueAsString(new SignupRequest(email, "password123!", displayName, null, UserRole.USER))))
             .andExpect(status().isOk());
         return loginAndReturnAccessToken(email, "password123!");
     }

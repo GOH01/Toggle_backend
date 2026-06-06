@@ -2,6 +2,8 @@ package com.toggle.service;
 
 import com.toggle.dto.map.MapLikeResponse;
 import com.toggle.dto.map.CreateMyMapRequest;
+import com.toggle.dto.map.LikedPublicMapListItemResponse;
+import com.toggle.dto.map.LikedPublicMapListResponse;
 import com.toggle.dto.map.PublicMapListItemResponse;
 import com.toggle.dto.map.PublicMapListResponse;
 import com.toggle.dto.map.UpdateUserMapMetadataRequest;
@@ -35,6 +37,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -382,6 +385,28 @@ public class UserMapService {
     public MapLikeResponse getLikes(Long mapId) {
         UserMap map = getPublicMapOrThrow(mapId);
         return new MapLikeResponse(map.getId(), userMapLikeRepository.countByMapId(map.getId()), false);
+    }
+
+    @Transactional(readOnly = true)
+    public LikedPublicMapListResponse getLikedPublicMaps(User user, int page, int size) {
+        validatePageRequest(page, size);
+
+        Pageable pageable = PageRequest.of(page, size);
+        var likedMaps = userMapLikeRepository.findAllByUserIdAndMapIsPublicTrueAndMapDeletedAtIsNullOrderByCreatedAtDesc(user.getId(), pageable);
+        List<LikedPublicMapListItemResponse> content = likedMaps.getContent().stream()
+            .map(like -> new LikedPublicMapListItemResponse(
+                like.getMap().getId(),
+                like.getMap().getPublicMapUuid(),
+                like.getMap().getOwnerUser().getNickname(),
+                like.getMap().getTitle(),
+                like.getMap().getDescription(),
+                like.getMap().getProfileImageUrl(),
+                userMapLikeRepository.countByMapId(like.getMap().getId()),
+                like.getCreatedAt()
+            ))
+            .toList();
+
+        return new LikedPublicMapListResponse(content, page, size, likedMaps.getTotalElements(), likedMaps.getTotalPages());
     }
 
     private void promotePrimaryMap(User user) {
